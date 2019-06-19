@@ -66,6 +66,7 @@ type keygenFlags struct {
 }
 
 const (
+	defaultID     = "id"
 	defaultTime   = 1
 	defaultMemory = 64 * 1024
 )
@@ -185,7 +186,7 @@ type encryptFlags struct {
 }
 
 func (f *encryptFlags) parse(args []string) *encryptFlags {
-	fs := flag.NewFlagSet("ss enc", flag.ExitOnError)
+	fs := flag.NewFlagSet("ss encrypt", flag.ExitOnError)
 	fs.StringVar(&f.id, "i", defaultID, "identity")
 	fs.StringVar(&f.in, "in", "", "input file")
 	fs.StringVar(&f.out, "out", "", "output file")
@@ -242,10 +243,8 @@ type decryptFlags struct {
 	out string
 }
 
-const defaultID = "id"
-
 func (f *decryptFlags) parse(args []string) *decryptFlags {
-	fs := flag.NewFlagSet("ss dec", flag.ExitOnError)
+	fs := flag.NewFlagSet("ss decrypt", flag.ExitOnError)
 	fs.StringVar(&f.id, "i", defaultID, "identity")
 	fs.StringVar(&f.in, "in", "", "input file")
 	fs.StringVar(&f.out, "out", "", "output file")
