@@ -68,14 +68,14 @@ type keygenFlags struct {
 const (
 	defaultID     = "id"
 	defaultTime   = 1
-	defaultMemory = 64 * 1024
+	defaultMemory = 64
 )
 
 func (f *keygenFlags) parse(args []string) *keygenFlags {
 	fs := flag.NewFlagSet("ss keygen", flag.ExitOnError)
 	fs.StringVar(&f.identity, "i", defaultID, "identity name")
 	fs.UintVar(&f.time, "t", defaultTime, "Argon2id time")
-	fs.UintVar(&f.memory, "m", defaultMemory, "Argon2id memory (KiB)")
+	fs.UintVar(&f.memory, "m", defaultMemory, "Argon2id memory (MiB)")
 	fs.BoolVar(&f.force, "f", false, "force Argon2id key derivation despite low parameters")
 	fs.StringVar(&f.comment, "c", "", "comment")
 	fs.Parse(args)
@@ -161,14 +161,14 @@ func keygen(fs *keygenFlags) (err error) {
 	time := uint32(fs.time)
 	memory := uint32(fs.memory)
 	if memory < defaultMemory {
-		log.Printf("warning: recommended Argon2id memory parameter is %d KiB (%d MiB)",
-			defaultMemory, defaultMemory/1024)
+		log.Printf("warning: recommended Argon2id memory parameter is %d MiB",
+			defaultMemory)
 		if !fs.force {
 			return errors.New("choose stronger parameters, use defaults, or force with -f")
 		}
 	}
 
-	kdfp := &keyfile.Argon2idParams{Time: time, Memory: memory}
+	kdfp := &keyfile.Argon2idParams{Time: time, Memory: memory * 1024}
 	fp, err := keyfile.GenerateKeys(rand.Reader, pkFile, skFile, passphrase, kdfp, fs.comment)
 	if err != nil {
 		return err
