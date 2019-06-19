@@ -135,6 +135,16 @@ func keygen(fs *keygenFlags) (err error) {
 		}
 	}()
 
+	time := uint32(fs.time)
+	memory := uint32(fs.memory)
+	if memory < defaultMemory {
+		log.Printf("warning: recommended Argon2id memory parameter is %d MiB",
+			defaultMemory)
+		if !fs.force {
+			return errors.New("choose stronger parameters, use defaults, or force with -f")
+		}
+	}
+
 	passphrase, err := promptPassphrase()
 	if err != nil {
 		return err
@@ -153,16 +163,6 @@ func keygen(fs *keygenFlags) (err error) {
 		return err
 	}
 	defer skFile.Close()
-
-	time := uint32(fs.time)
-	memory := uint32(fs.memory)
-	if memory < defaultMemory {
-		log.Printf("warning: recommended Argon2id memory parameter is %d MiB",
-			defaultMemory)
-		if !fs.force {
-			return errors.New("choose stronger parameters, use defaults, or force with -f")
-		}
-	}
 
 	kdfp := &keyfile.Argon2idParams{Time: time, Memory: memory * 1024}
 	fp, err := keyfile.GenerateKeys(rand.Reader, pkFile, skFile, passphrase, kdfp, fs.comment)
