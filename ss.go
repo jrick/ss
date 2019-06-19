@@ -82,13 +82,13 @@ func (f *keygenFlags) parse(args []string) *keygenFlags {
 	return f
 }
 
-func promptPassphrase() ([]byte, error) {
+func promptPassphrase(skFilename string) ([]byte, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		panic(err)
 	}
 	defer tty.Close()
-	_, err = fmt.Fprint(tty, "Secret key passphrase: ")
+	_, err = fmt.Fprintf(tty, "Passphrase for %s: ", skFilename)
 	if err != nil {
 		panic(err)
 	}
@@ -145,7 +145,7 @@ func keygen(fs *keygenFlags) (err error) {
 		}
 	}
 
-	passphrase, err := promptPassphrase()
+	passphrase, err := promptPassphrase(skFilename)
 	if err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func decrypt(fs *decryptFlags) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	passphrase, err := promptPassphrase()
+	passphrase, err := promptPassphrase(skFilename)
 	if err != nil {
 		log.Fatal(err)
 	}
