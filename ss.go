@@ -21,7 +21,7 @@ import (
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage of %s:
-  %[1]s keygen [-i id] [-t time] [-m memory (KiB)] [-c comment]
+  %[1]s keygen [-i id] [-t time] [-m memory (MiB)] [-c comment]
   %[1]s encrypt [-i id] [-in input] [-out output]
   %[1]s decrypt [-i id] [-in input] [-out output]
 `, filepath.Base(os.Args[0]))
