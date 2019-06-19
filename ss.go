@@ -129,13 +129,9 @@ func keygen(fs *keygenFlags) (err error) {
 		return fmt.Errorf("%q keys already exist in %s", id, appdir)
 	}
 	defer func() {
-		r := recover()
-		if r != nil || err != nil {
+		if err != nil {
 			os.Remove(pkFilename)
 			os.Remove(skFilename)
-		}
-		if r != nil {
-			panic(r)
 		}
 	}()
 
