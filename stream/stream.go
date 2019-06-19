@@ -92,7 +92,7 @@ func Encrypt(rand io.Reader, w io.Writer, r io.Reader, pk *PublicKey) error {
 
 	// Read/write blocks
 	buf := make([]byte, chunksize)
-	ad = ad[:4+len(sharedKeyCiphertext)]
+	ad = header
 	nonce := newCounter()
 	for {
 		l, err := io.ReadFull(r, buf)
@@ -146,7 +146,7 @@ func Decrypt(w io.Writer, r io.Reader, sk *SecretKey) error {
 	}
 
 	buf := make([]byte, chunksize+aead.Overhead())
-	ad = ad[:4+ntrup.CiphertextSize]
+	ad = header
 	nonce := newCounter()
 	for {
 		// Append nonce to current AD (the header for the first block, nothing for rest)
