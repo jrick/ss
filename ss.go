@@ -180,9 +180,10 @@ func keygen(fs *keygenFlags) (err error) {
 }
 
 type encryptFlags struct {
-	id  string
-	in  string
-	out string
+	id    string
+	in    string
+	out   string
+	usage func()
 }
 
 func (f *encryptFlags) parse(args []string) *encryptFlags {
@@ -191,6 +192,7 @@ func (f *encryptFlags) parse(args []string) *encryptFlags {
 	fs.StringVar(&f.in, "in", "", "input file")
 	fs.StringVar(&f.out, "out", "", "output file")
 	fs.Parse(args)
+	f.usage = fs.Usage
 	return f
 }
 
@@ -231,6 +233,15 @@ func encrypt(fs *encryptFlags) {
 	}
 
 	out, in := stdio(fs.out, fs.in)
+	switch out := out.(type) {
+	case interface{ Fd() uintptr }: // implemented by *os.File
+		if terminal.IsTerminal(int(out.Fd())) {
+			log.Printf("output file is a terminal")
+			log.Printf("use shell redirection or set -out flag to a filename")
+			fs.usage()
+			os.Exit(2)
+		}
+	}
 	err = stream.Encrypt(rand.Reader, out, in, pk)
 	if err != nil {
 		log.Fatal(err)
