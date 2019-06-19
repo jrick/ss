@@ -226,7 +226,7 @@ func encrypt(fs *encryptFlags) {
 	}
 	pk, err := keyfile.ReadPublicKey(pkFile)
 	if err != nil {
-		fmt.Errorf("%s: %v", pkFilename, err)
+		log.Fatalf("%s: %v", pkFilename, err)
 	}
 
 	out, in := stdio(fs.out, fs.in)
@@ -268,7 +268,7 @@ func decrypt(fs *decryptFlags) {
 	sk, err := keyfile.OpenSecretKey(skFile, passphrase)
 	if err != nil {
 		log.Printf("%s: %v", skFilename, err)
-		fmt.Errorf("The secret keyfile cannot be opened.  " +
+		log.Fatal("The secret keyfile cannot be opened.  " +
 			"This may be due to keyfile tampering or an incorrect passphrase.")
 	}
 
