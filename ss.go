@@ -202,7 +202,7 @@ func stdio(outFlag, inFlag string) (io.Writer, io.Reader) {
 			log.Fatal(err)
 		}
 	}
-	if inFlag != "" && outFlag != "-" {
+	if inFlag != "" && inFlag != "-" {
 		in, err = os.Open(inFlag)
 		if err != nil {
 			log.Fatal(err)
