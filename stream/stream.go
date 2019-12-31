@@ -38,7 +38,6 @@ func (c *counter) inc() {
 	binary.LittleEndian.PutUint32(c.bytes[8:12], c.limbs[2])
 }
 
-
 // PublicKey is a type alias for a properly-sized byte array to represent a
 // Streamlined NTRU Prime 4591^761 public key.
 type PublicKey = [ntrup.PublicKeySize]byte
@@ -47,9 +46,11 @@ type PublicKey = [ntrup.PublicKeySize]byte
 // Streamlined NTRU Prime 4591^761 secret key.
 type SecretKey = [ntrup.PrivateKeySize]byte
 
-const streamVersion = 1
+const streamVersion = 2
 
 const chunksize = 1 << 16 // does not include AEAD overhead
+
+const overhead = 16 // poly1305 tag overhead
 
 // Encrypt performs stream encryption, reading plaintext from r and writing an
 // encrypted stream to w which can only be decrypted by pk's secret key.
@@ -61,6 +62,9 @@ func Encrypt(rand io.Reader, w io.Writer, r io.Reader, pk *PublicKey) error {
 	if err != nil {
 		return err
 	}
+
+	nonce := newCounter()
+	buf := make([]byte, 0, chunksize+overhead)
 	aead, err := chacha20poly1305.New(sharedKeyPlaintext[:])
 	if err != nil {
 		return err
@@ -68,40 +72,44 @@ func Encrypt(rand io.Reader, w io.Writer, r io.Reader, pk *PublicKey) error {
 
 	// # Protocol
 	//
-	// Header
-	// - Protocol version (1, encoded 4 bytes little endian)
-	// - NTRUP ciphertext of ChaCha20-Poly1305 key
+	// Key Exchange
+	// - SNTRUP 4591^761 encapsulated ChaCha20-Poly1305 key
+	//
+	// Version negotiation
+	// - ChaCha20-Poly1305 sealed protocol version (4 bytes little endian),
+	//   using zero nonce and encapsulated key ciphertext as Associated Data.
+	//   Version is currently 2, and no other versions are implemented.
 	//
 	// Blocks
-	// - ChaCha20-Poly1305 chunked payloads
+	// - ChaCha20-Poly1305 chunked payloads (incrementing previous nonce)
 	//
 	// A little endian counter is used as the AD for each block,
 	// with stream header prepended to the counter for the first block.
 
-	ad := make([]byte, 0, 4+len(sharedKeyCiphertext)+chacha20poly1305.NonceSize)
-	header := ad[:4+len(sharedKeyCiphertext)]
-
-	binary.LittleEndian.PutUint32(header, streamVersion)
-	copy(header[4:], sharedKeyCiphertext[:])
-
-	// Write header
-	_, err = w.Write(header)
+	// Write encapsulated key
+	_, err = w.Write(sharedKeyCiphertext[:])
 	if err != nil {
 		return err
 	}
 
-	// Read/write blocks
-	buf := make([]byte, chunksize)
-	ad = header
-	nonce := newCounter()
-	for {
-		l, err := io.ReadFull(r, buf)
-		if l > 0 {
-			ad = append(ad, nonce.bytes...)
+	// Write sealed version
+	buf = buf[:4]
+	binary.LittleEndian.PutUint32(buf, streamVersion)
+	buf = aead.Seal(buf[:0], nonce.bytes, buf, sharedKeyCiphertext[:])
+	_, err = w.Write(buf)
+	if err != nil {
+		return err
+	}
 
-			block := buf[:l]
-			block = aead.Seal(block[:0], nonce.bytes, block, ad)
-			_, err := w.Write(block)
+	// Read/write chunks
+	for {
+		nonce.inc()
+
+		chunk := buf[:chunksize]
+		l, err := io.ReadFull(r, chunk)
+		if l > 0 {
+			chunk = aead.Seal(chunk[:0], nonce.bytes, chunk[:l], nil)
+			_, err := w.Write(chunk)
 			if err != nil {
 				return err
 			}
@@ -112,54 +120,54 @@ func Encrypt(rand io.Reader, w io.Writer, r io.Reader, pk *PublicKey) error {
 		if err != nil {
 			return err
 		}
-
-		ad = ad[:0]
-		nonce.inc()
 	}
 }
 
 // Decrypt performs stream decryption, reading ciphertext from r, decrypting
 // with sk, and writing a stream of plaintext to w.
 func Decrypt(w io.Writer, r io.Reader, sk *SecretKey) error {
-	ad := make([]byte, 0, 4+ntrup.CiphertextSize+chacha20poly1305.NonceSize)
-	header := ad[:4+ntrup.CiphertextSize]
-	_, err := io.ReadAtLeast(r, header, len(header))
+	sharedKeyCiphertext := new([ntrup.CiphertextSize]byte)
+	_, err := io.ReadFull(r, sharedKeyCiphertext[:])
 	if err != nil {
 		return err
 	}
-
-	// Read header values
-	proto := header[:4]
-	if binary.LittleEndian.Uint32(proto) != streamVersion {
-		return fmt.Errorf("unknown protocol version %x", proto)
-	}
-	sharedKeyCiphertext := new([ntrup.CiphertextSize]byte)
-	copy(sharedKeyCiphertext[:], header[4:])
-
 	sharedKeyPlaintext, ok := ntrup.Decapsulate(sharedKeyCiphertext, sk)
 	if ok != 1 {
 		return errors.New("cannot decrypt message key")
 	}
+
+	nonce := newCounter()
+	buf := make([]byte, 0, chunksize+overhead)
 	aead, err := chacha20poly1305.New(sharedKeyPlaintext[:])
 	if err != nil {
 		return err
 	}
 
-	buf := make([]byte, chunksize+aead.Overhead())
-	ad = header
-	nonce := newCounter()
-	for {
-		// Append nonce to current AD (the header for the first block, nothing for rest)
-		ad = append(ad, nonce.bytes...)
+	// Read sealed version
+	buf = buf[:4+overhead]
+	_, err = io.ReadFull(r, buf)
+	if err != nil {
+		return err
+	}
+	buf, err = aead.Open(buf[:0], nonce.bytes, buf, sharedKeyCiphertext[:])
+	if err != nil {
+		return err
+	}
+	if binary.LittleEndian.Uint32(buf) != streamVersion {
+		return fmt.Errorf("unknown protocol version %x", buf)
+	}
 
-		l, err := io.ReadFull(r, buf)
+	for {
+		nonce.inc()
+
+		chunk := buf[:chunksize+overhead]
+		l, err := io.ReadFull(r, chunk)
 		if l > 0 {
-			block := buf[:l]
-			block, err = aead.Open(block[:0], nonce.bytes, block, ad)
+			chunk, err = aead.Open(chunk[:0], nonce.bytes, chunk[:l], nil)
 			if err != nil {
 				return err
 			}
-			_, err := w.Write(block)
+			_, err := w.Write(chunk)
 			if err != nil {
 				return err
 			}
@@ -170,8 +178,5 @@ func Decrypt(w io.Writer, r io.Reader, sk *SecretKey) error {
 		if err != nil {
 			return err
 		}
-
-		ad = ad[:0]
-		nonce.inc()
 	}
 }
