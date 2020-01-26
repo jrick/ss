@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"math/bits"
+	"runtime"
 
 	ntrup "github.com/companyzero/sntrup4591761"
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
@@ -46,48 +48,100 @@ type PublicKey = [ntrup.PublicKeySize]byte
 // Streamlined NTRU Prime 4591^761 secret key.
 type SecretKey = [ntrup.PrivateKeySize]byte
 
-const streamVersion = 2
+// Ciphertext is a type alias for a properly-sized byte array to represent the
+// ciphertext of a Streamlined NTRU Prime 4591^761 encapsulated key.
+type Ciphertext = [ntrup.CiphertextSize]byte
+
+// SymmetricKey is a type alias for a properly-sized byte array for a
+// ChaCha20-Poly1305 symmetric encryption key.
+type SymmetricKey = [chacha20poly1305.KeySize]byte
+
+const streamVersion = 3
 
 const chunksize = 1 << 16 // does not include AEAD overhead
 
 const overhead = 16 // poly1305 tag overhead
 
-// Encrypt performs stream encryption, reading plaintext from r and writing an
-// encrypted stream to w which can only be decrypted by pk's secret key.
-// Cryptographically-secure randomness is provided by rand.
-func Encrypt(rand io.Reader, w io.Writer, r io.Reader, pk *PublicKey) error {
+// KeyScheme describes the keying scheme used for message encryption.  It is
+// recorded in the stream header, and decrypters must first parse the scheme
+// from the header before deriving or recovering the encryption key.
+type KeyScheme byte
+
+// Key schemes
+const (
+	StreamlinedNTRUPrime4591761Scheme KeyScheme = iota + 1
+	Argon2idScheme
+)
+
+// Encapsulate creates the header beginning a PKI encryption stream.  It derives
+// an ephemeral ChaCha20-Poly1305 symmetric key and encapsulates (encrypts) the
+// key for the public key pk, recording the key ciphertext in the header.
+// Cryptographically-secure randomness is read from rand.
+func Encapsulate(rand io.Reader, pk *PublicKey) (header []byte, key *SymmetricKey, err error) {
 	// Derive and encapsulate an ephemeral shared symmetric key to encrypt a
 	// message that can only be decapsulated using pk's secret key.
 	sharedKeyCiphertext, sharedKeyPlaintext, err := ntrup.Encapsulate(rand, pk)
 	if err != nil {
-		return err
+		return
 	}
 
-	nonce := newCounter()
+	header = make([]byte, 1+len(sharedKeyCiphertext))
+	header[0] = byte(StreamlinedNTRUPrime4591761Scheme)
+	copy(header[1:], sharedKeyCiphertext[:])
+
+	return header, sharedKeyPlaintext, nil
+}
+
+// PassphraseKey creates the header beginning a passphrase-protected encryption stream.
+// The time and memory parameters describe Argon2id difficulty parameters.
+// Cryptographically-secure randomness is read from rand.
+func PassphraseKey(rand io.Reader, passphrase []byte, time, memory uint32) (header []byte, key *SymmetricKey, err error) {
+	header = make([]byte, 1+16+8)
+	header[0] = byte(Argon2idScheme)
+	salt := header[1:17]
+	htime := header[17 : 17+4]
+	hmemory := header[17+4:]
+	// Read random salt and store to header
+	_, err = io.ReadFull(rand, salt)
+	if err != nil {
+		return
+	}
+	// Write time and memory
+	binary.LittleEndian.PutUint32(htime, time)
+	binary.LittleEndian.PutUint32(hmemory, memory)
+
+	key = new(SymmetricKey)
+	copy(key[:], argon2.IDKey(passphrase, salt, time, memory, uint8(runtime.NumCPU()), 32))
+	return header, key, nil
+}
+
+// Encrypt performs symmetric stream encryption, reading plaintext from r and
+// writing an encrypted stream to w which can only be decrypted with knowledge
+// of key.  The steam header is Associated Data.
+func Encrypt(w io.Writer, r io.Reader, header []byte, key *SymmetricKey) error {
 	buf := make([]byte, 0, chunksize+overhead)
-	aead, err := chacha20poly1305.New(sharedKeyPlaintext[:])
+	aead, err := chacha20poly1305.New(key[:])
 	if err != nil {
 		return err
 	}
 
 	// # Protocol
 	//
-	// Key Exchange
-	// - SNTRUP 4591^761 encapsulated ChaCha20-Poly1305 key
+	// Keying Header
+	// - Uniquely describes keying scheme and carries related data.
+	//   Examples include sntrup4591651 encapsulation or KDF parameters.
 	//
-	// Version negotiation
-	// - ChaCha20-Poly1305 sealed protocol version (4 bytes little endian),
-	//   using zero nonce and encapsulated key ciphertext as Associated Data.
-	//   Version is currently 2, and no other versions are implemented.
+	// Version
+	// - ChaCha20-Poly1305 sealed protocol version, using a zero nonce, with
+	//   header as the Associated Data.
+	//   Version is currently 3, and no other versions are implemented.
+	//   Future versions may allow description of the chunk size or
 	//
 	// Blocks
 	// - ChaCha20-Poly1305 chunked payloads (incrementing previous nonce)
-	//
-	// A little endian counter is used as the AD for each block,
-	// with stream header prepended to the counter for the first block.
 
-	// Write encapsulated key
-	_, err = w.Write(sharedKeyCiphertext[:])
+	// Write header
+	_, err = w.Write(header)
 	if err != nil {
 		return err
 	}
@@ -95,7 +149,8 @@ func Encrypt(rand io.Reader, w io.Writer, r io.Reader, pk *PublicKey) error {
 	// Write sealed version
 	buf = buf[:4]
 	binary.LittleEndian.PutUint32(buf, streamVersion)
-	buf = aead.Seal(buf[:0], nonce.bytes, buf, sharedKeyCiphertext[:])
+	nonce := newCounter()
+	buf = aead.Seal(buf[:0], nonce.bytes, buf, header)
 	_, err = w.Write(buf)
 	if err != nil {
 		return err
@@ -103,13 +158,12 @@ func Encrypt(rand io.Reader, w io.Writer, r io.Reader, pk *PublicKey) error {
 
 	// Read/write chunks
 	for {
-		nonce.inc()
-
 		chunk := buf[:chunksize]
 		l, err := io.ReadFull(r, chunk)
 		if l > 0 {
+			nonce.inc()
 			chunk = aead.Seal(chunk[:0], nonce.bytes, chunk[:l], nil)
-			_, err := w.Write(chunk)
+			_, err = w.Write(chunk)
 			if err != nil {
 				return err
 			}
@@ -123,22 +177,90 @@ func Encrypt(rand io.Reader, w io.Writer, r io.Reader, pk *PublicKey) error {
 	}
 }
 
-// Decrypt performs stream decryption, reading ciphertext from r, decrypting
-// with sk, and writing a stream of plaintext to w.
-func Decrypt(w io.Writer, r io.Reader, sk *SecretKey) error {
-	sharedKeyCiphertext := new([ntrup.CiphertextSize]byte)
-	_, err := io.ReadFull(r, sharedKeyCiphertext[:])
-	if err != nil {
-		return err
-	}
-	sharedKeyPlaintext, ok := ntrup.Decapsulate(sharedKeyCiphertext, sk)
-	if ok != 1 {
-		return errors.New("cannot decrypt message key")
-	}
+// Header represents a parsed stream header.  It records the keying scheme for
+// the stream symmetric key, as well as parameters needed to derive the key
+// given the specific scheme.  The Bytes field records the raw bytes of the full
+// header, which must be passed to Decrypt for authentication.
+type Header struct {
+	Bytes  []byte
+	Scheme KeyScheme
 
+	// For StreamlinedNTRUPrime4591761Scheme
+	Ciphertext *Ciphertext
+
+	// For Argon2idScheme
+	Salt   []byte
+	Time   uint32
+	Memory uint32
+}
+
+// ReadHeader parses the stream header from the reader.
+func ReadHeader(r io.Reader) (*Header, error) {
+	var scheme [1]byte
+	_, err := io.ReadFull(r, scheme[:])
+	if err != nil {
+		return nil, err
+	}
+	h := new(Header)
+	h.Scheme = KeyScheme(scheme[0])
+
+	switch h.Scheme {
+	default:
+		return nil, fmt.Errorf("stream: unknown key scheme %#0x", h.Scheme)
+	case StreamlinedNTRUPrime4591761Scheme:
+		h.Ciphertext = new(Ciphertext)
+		h.Bytes = make([]byte, 1+len(h.Ciphertext))
+		h.Bytes[0] = scheme[0]
+		_, err = io.ReadFull(r, h.Bytes[1:])
+		if err != nil {
+			return nil, err
+		}
+		copy(h.Ciphertext[:], h.Bytes[1:])
+	case Argon2idScheme:
+		h.Bytes = make([]byte, 1+16+8)
+		h.Bytes[0] = scheme[0]
+		_, err = io.ReadFull(r, h.Bytes[1:])
+		if err != nil {
+			return nil, err
+		}
+		h.Salt = h.Bytes[1 : 1+16]
+		h.Time = binary.LittleEndian.Uint32(h.Bytes[17:])
+		h.Memory = binary.LittleEndian.Uint32(h.Bytes[17+4:])
+	}
+	return h, nil
+}
+
+// Decapsulate decrypts a PKI encrypted symmetric key from the header.
+// The scheme must be for PKI encryption.
+func Decapsulate(h *Header, sk *SecretKey) (*SymmetricKey, error) {
+	if h.Scheme != StreamlinedNTRUPrime4591761Scheme {
+		return nil, errors.New("stream: nothing to decapsulate in header")
+	}
+	sharedKeyPlaintext, ok := ntrup.Decapsulate(h.Ciphertext, sk)
+	if ok != 1 {
+		return nil, errors.New("stream: cannot decapsulate message key")
+	}
+	return sharedKeyPlaintext, nil
+}
+
+// DerivePassphraseKey derives a symmetric key from a passphrase.
+// The scheme must be for symmetric passphrase encryption.
+func DerivePassphraseKey(h *Header, passphrase []byte) (*SymmetricKey, error) {
+	if h.Scheme != Argon2idScheme {
+		return nil, errors.New("stream: not a symmetric passphrase encryption scheme")
+	}
+	key := new(SymmetricKey)
+	copy(key[:], argon2.IDKey(passphrase, h.Salt, h.Time, h.Memory, uint8(runtime.NumCPU()), 32))
+	return key, nil
+}
+
+// Decrypt performs symmetric stream decryption, reading ciphertext from r,
+// descrypting with key, and writing a stream of plaintext to w.  The steam
+// header is Associated Data.
+func Decrypt(w io.Writer, r io.Reader, header []byte, key *SymmetricKey) error {
 	nonce := newCounter()
 	buf := make([]byte, 0, chunksize+overhead)
-	aead, err := chacha20poly1305.New(sharedKeyPlaintext[:])
+	aead, err := chacha20poly1305.New(key[:])
 	if err != nil {
 		return err
 	}
@@ -149,7 +271,7 @@ func Decrypt(w io.Writer, r io.Reader, sk *SecretKey) error {
 	if err != nil {
 		return err
 	}
-	buf, err = aead.Open(buf[:0], nonce.bytes, buf, sharedKeyCiphertext[:])
+	buf, err = aead.Open(buf[:0], nonce.bytes, buf, header)
 	if err != nil {
 		return err
 	}
@@ -158,11 +280,10 @@ func Decrypt(w io.Writer, r io.Reader, sk *SecretKey) error {
 	}
 
 	for {
-		nonce.inc()
-
 		chunk := buf[:chunksize+overhead]
 		l, err := io.ReadFull(r, chunk)
 		if l > 0 {
+			nonce.inc()
 			chunk, err = aead.Open(chunk[:0], nonce.bytes, chunk[:l], nil)
 			if err != nil {
 				return err
