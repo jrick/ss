@@ -114,7 +114,7 @@ func PassphraseKey(rand io.Reader, passphrase []byte, time, memory uint32) (head
 	binary.LittleEndian.PutUint32(hmemory, memory)
 
 	// Derive a 64-byte Argon2id key from the passphrase.
-	// The first 32 bytes becomes an authentication tag, allowing detection of an
+	// The first 32 bytes becomes an authentication key, allowing detection of an
 	// invalid passphrase during derivation from the header values, rather than
 	// hitting authentication errors during stream decryption.
 	// The final 32 bytes is the stream symmetric key.
