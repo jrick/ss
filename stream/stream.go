@@ -14,6 +14,7 @@ import (
 	ntrup "github.com/companyzero/sntrup4591761"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/poly1305"
 )
 
 // counter implements a 12-byte little endian counter suitable for use as an
@@ -96,11 +97,13 @@ func Encapsulate(rand io.Reader, pk *PublicKey) (header []byte, key *SymmetricKe
 // The time and memory parameters describe Argon2id difficulty parameters.
 // Cryptographically-secure randomness is read from rand.
 func PassphraseKey(rand io.Reader, passphrase []byte, time, memory uint32) (header []byte, key *SymmetricKey, err error) {
-	header = make([]byte, 1+16+8)
+	header = make([]byte, 1+16+8+overhead)
 	header[0] = byte(Argon2idScheme)
 	salt := header[1:17]
 	htime := header[17 : 17+4]
-	hmemory := header[17+4:]
+	hmemory := header[17+4 : 17+8]
+	data := header[:17+8]
+	htag := header[17+8:]
 	// Read random salt and store to header
 	_, err = io.ReadFull(rand, salt)
 	if err != nil {
@@ -110,8 +113,22 @@ func PassphraseKey(rand io.Reader, passphrase []byte, time, memory uint32) (head
 	binary.LittleEndian.PutUint32(htime, time)
 	binary.LittleEndian.PutUint32(hmemory, memory)
 
+	// Derive a 64-byte Argon2id key from the passphrase.
+	// The first 32 bytes becomes an authentication tag, allowing detection of an
+	// invalid passphrase during derivation from the header values, rather than
+	// hitting authentication errors during stream decryption.
+	// The final 32 bytes is the stream symmetric key.
+	idkey := argon2.IDKey(passphrase, salt, time, memory, uint8(runtime.NumCPU()), 64)
+
+	// Authenticate key derivation
+	var tag [overhead]byte
+	var polyKey [32]byte
+	copy(polyKey[:], idkey[:32])
+	poly1305.Sum(&tag, data, &polyKey)
+	copy(htag, tag[:])
+
 	key = new(SymmetricKey)
-	copy(key[:], argon2.IDKey(passphrase, salt, time, memory, uint8(runtime.NumCPU()), 32))
+	copy(key[:], idkey[32:])
 	return header, key, nil
 }
 
@@ -192,6 +209,7 @@ type Header struct {
 	Salt   []byte
 	Time   uint32
 	Memory uint32
+	Tag    [16]byte
 }
 
 // ReadHeader parses the stream header from the reader.
@@ -217,7 +235,7 @@ func ReadHeader(r io.Reader) (*Header, error) {
 		}
 		copy(h.Ciphertext[:], h.Bytes[1:])
 	case Argon2idScheme:
-		h.Bytes = make([]byte, 1+16+8)
+		h.Bytes = make([]byte, 1+16+8+overhead)
 		h.Bytes[0] = scheme[0]
 		_, err = io.ReadFull(r, h.Bytes[1:])
 		if err != nil {
@@ -225,7 +243,8 @@ func ReadHeader(r io.Reader) (*Header, error) {
 		}
 		h.Salt = h.Bytes[1 : 1+16]
 		h.Time = binary.LittleEndian.Uint32(h.Bytes[17:])
-		h.Memory = binary.LittleEndian.Uint32(h.Bytes[17+4:])
+		h.Memory = binary.LittleEndian.Uint32(h.Bytes[17+4 : 17+8])
+		copy(h.Tag[:], h.Bytes[17+8:])
 	}
 	return h, nil
 }
@@ -249,8 +268,18 @@ func DerivePassphraseKey(h *Header, passphrase []byte) (*SymmetricKey, error) {
 	if h.Scheme != Argon2idScheme {
 		return nil, errors.New("stream: not a symmetric passphrase encryption scheme")
 	}
+	idkey := argon2.IDKey(passphrase, h.Salt, h.Time, h.Memory, uint8(runtime.NumCPU()), 64)
+
+	// Authenticate key derivation
+	var polyKey [32]byte
+	copy(polyKey[:], idkey[:32])
+	data := h.Bytes[:17+8]
+	if !poly1305.Verify(&h.Tag, data, &polyKey) {
+		return nil, errors.New("stream: incorrect passphrase")
+	}
+
 	key := new(SymmetricKey)
-	copy(key[:], argon2.IDKey(passphrase, h.Salt, h.Time, h.Memory, uint8(runtime.NumCPU()), 32))
+	copy(key[:], idkey[32:])
 	return key, nil
 }
 
