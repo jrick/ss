@@ -284,7 +284,7 @@ func DerivePassphraseKey(h *Header, passphrase []byte) (*SymmetricKey, error) {
 }
 
 // Decrypt performs symmetric stream decryption, reading ciphertext from r,
-// descrypting with key, and writing a stream of plaintext to w.  The steam
+// decrypting with key, and writing a stream of plaintext to w.  The steam
 // header is Associated Data.
 func Decrypt(w io.Writer, r io.Reader, header []byte, key *SymmetricKey) error {
 	nonce := newCounter()
