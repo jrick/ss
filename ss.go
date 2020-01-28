@@ -161,7 +161,7 @@ func keygen(fs *keygenFlags) (err error) {
 		return err
 	}
 	if !bytes.Equal(passphrase, passphraseAgain) {
-		log.Fatal("passphrases do not match")
+		return errors.New("passphrases do not match")
 	}
 
 	pkFile, err := os.OpenFile(pkFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
