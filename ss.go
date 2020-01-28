@@ -267,7 +267,7 @@ func encrypt(fs *encryptFlags) {
 		if !bytes.Equal(passphrase, passphraseAgain) {
 			log.Fatal("passphrases do not match")
 		}
-		header, key, err = stream.PassphraseKey(rand.Reader, passphrase, time, memory)
+		header, key, err = stream.PassphraseHeader(rand.Reader, passphrase, time, memory)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -353,7 +353,7 @@ func decrypt(fs *decryptFlags) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		key, err = stream.DerivePassphraseKey(header, passphrase)
+		key, err = stream.PassphraseKey(header, passphrase)
 		if err != nil {
 			log.Fatal(err)
 		}

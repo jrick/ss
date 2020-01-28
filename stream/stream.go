@@ -93,10 +93,10 @@ func Encapsulate(rand io.Reader, pk *PublicKey) (header []byte, key *SymmetricKe
 	return header, sharedKeyPlaintext, nil
 }
 
-// PassphraseKey creates the header beginning a passphrase-protected encryption stream.
+// PassphraseHeader creates the header beginning a passphrase-protected encryption stream.
 // The time and memory parameters describe Argon2id difficulty parameters.
 // Cryptographically-secure randomness is read from rand.
-func PassphraseKey(rand io.Reader, passphrase []byte, time, memory uint32) (header []byte, key *SymmetricKey, err error) {
+func PassphraseHeader(rand io.Reader, passphrase []byte, time, memory uint32) (header []byte, key *SymmetricKey, err error) {
 	header = make([]byte, 1+16+8+overhead)
 	header[0] = byte(Argon2idScheme)
 	salt := header[1:17]
@@ -262,9 +262,9 @@ func Decapsulate(h *Header, sk *SecretKey) (*SymmetricKey, error) {
 	return sharedKeyPlaintext, nil
 }
 
-// DerivePassphraseKey derives a symmetric key from a passphrase.
-// The scheme must be for symmetric passphrase encryption.
-func DerivePassphraseKey(h *Header, passphrase []byte) (*SymmetricKey, error) {
+// PassphraseKey derives a symmetric key from a passphrase.
+// The header scheme must be for symmetric passphrase encryption.
+func PassphraseKey(h *Header, passphrase []byte) (*SymmetricKey, error) {
 	if h.Scheme != Argon2idScheme {
 		return nil, errors.New("stream: not a symmetric passphrase encryption scheme")
 	}
