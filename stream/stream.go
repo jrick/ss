@@ -94,7 +94,8 @@ func Encapsulate(rand io.Reader, pk *PublicKey) (header []byte, key *SymmetricKe
 }
 
 // PassphraseHeader creates the header beginning a passphrase-protected encryption stream.
-// The time and memory parameters describe Argon2id difficulty parameters.
+// The time and memory parameters describe Argon2id difficulty parameters, where
+// memory is measured in KiB.
 // Cryptographically-secure randomness is read from rand.
 func PassphraseHeader(rand io.Reader, passphrase []byte, time, memory uint32) (header []byte, key *SymmetricKey, err error) {
 	header = make([]byte, 1+16+8+overhead)
