@@ -313,12 +313,13 @@ func Decrypt(w io.Writer, r io.Reader, header []byte, key *SymmetricKey) error {
 		chunk := buf[:chunksize+overhead]
 		l, err := io.ReadFull(r, chunk)
 		if l > 0 {
+			var err error
 			nonce.inc()
 			chunk, err = aead.Open(chunk[:0], nonce.bytes, chunk[:l], nil)
 			if err != nil {
 				return err
 			}
-			_, err := w.Write(chunk)
+			_, err = w.Write(chunk)
 			if err != nil {
 				return err
 			}
