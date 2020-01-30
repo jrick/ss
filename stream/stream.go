@@ -181,7 +181,7 @@ func Encrypt(w io.Writer, r io.Reader, header []byte, key *SymmetricKey) error {
 		if l > 0 {
 			nonce.inc()
 			chunk = aead.Seal(chunk[:0], nonce.bytes, chunk[:l], nil)
-			_, err = w.Write(chunk)
+			_, err := w.Write(chunk)
 			if err != nil {
 				return err
 			}
