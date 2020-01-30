@@ -247,7 +247,7 @@ func encrypt(fs *encryptFlags) {
 	var err error
 	if fs.passphrase {
 		time := uint32(fs.time)
-		memory := uint32(fs.memory * 1024)
+		memory := uint32(fs.memory)
 		if memory < defaultMemory {
 			log.Printf("warning: recommended Argon2id memory parameter is %d MiB",
 				defaultMemory)
@@ -255,6 +255,7 @@ func encrypt(fs *encryptFlags) {
 				log.Fatal("choose stronger parameters, use defaults, or force with -f")
 			}
 		}
+		memory *= 1024
 
 		passphrase, err := promptPassphrase("Encryption passphrase")
 		if err != nil {
