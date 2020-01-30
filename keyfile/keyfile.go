@@ -84,6 +84,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 	fmt.Fprintf(buf, "argon2id-salt: %s\n", base64.StdEncoding.EncodeToString(salt))
 	fmt.Fprintf(buf, "argon2id-time: %d\n", time)
 	fmt.Fprintf(buf, "argon2id-memory: %d\n", memory)
+	fmt.Fprintf(buf, "argon2id-threads: %d\n", ncpu)
 	fmt.Fprintf(buf, "encoding: base64\n")
 	// Everything above is Associated Data
 	data := buf.Bytes()
@@ -222,14 +223,17 @@ func OpenSecretKey(r io.Reader, passphrase []byte) (*SecretKey, error) {
 	}
 	time, err := strconv.ParseUint(fields["argon2id-time"], 10, 32)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("argon2id-time: %w", err)
 	}
 	memory, err := strconv.ParseUint(fields["argon2id-memory"], 10, 32)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("argon2id-memory: %w", err)
 	}
-	ncpu := uint8(runtime.NumCPU())
-	derivedKey := argon2.IDKey(passphrase, salt, uint32(time), uint32(memory), ncpu, chacha20poly1305.KeySize)
+	ncpu, err := strconv.ParseUint(fields["argon2id-threads"], 10, 8)
+	if err != nil {
+		return nil, fmt.Errorf("argon2id-threads: %w", err)
+	}
+	derivedKey := argon2.IDKey(passphrase, salt, uint32(time), uint32(memory), uint8(ncpu), chacha20poly1305.KeySize)
 	aead, err := chacha20poly1305.New(derivedKey)
 	if err != nil {
 		return nil, err
