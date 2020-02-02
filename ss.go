@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 
 	"github.com/jrick/ss/keyfile"
 	"github.com/jrick/ss/stream"
@@ -23,7 +24,7 @@ import (
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage of %s:
   %[1]s keygen [-i id] [-t time] [-m memory (MiB)] [-c comment]
-  %[1]s encrypt [-i id] [-in input] [-out output]
+  %[1]s encrypt [-i id|pubkey] [-in input] [-out output]
   %[1]s encrypt -passphrase [-in input] [-out output] [-t time] [-m memory (MiB)]
   %[1]s decrypt [-i id] [-in input] [-out output]
 `, filepath.Base(os.Args[0]))
@@ -274,8 +275,11 @@ func encrypt(fs *encryptFlags) {
 		}
 	} else {
 		// Read identity's public key
-		appdir := appdir()
-		pkFilename := filepath.Join(appdir, fs.id+".public")
+		pkFilename := fs.id
+		if !strings.HasSuffix(pkFilename, ".public") {
+			appdir := appdir()
+			pkFilename = filepath.Join(appdir, fs.id+".public")
+		}
 		if _, err := os.Stat(pkFilename); os.IsNotExist(err) {
 			log.Printf("%s does not exist", pkFilename)
 			log.Fatal("use '-i' flag to choose another identity or generate default keys with 'ss keygen'")

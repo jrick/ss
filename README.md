@@ -21,9 +21,9 @@ Files and streams can be encrypted for yourself with `ss encrypt`.  By default,
 stdin is read and encrypted to stdout.  Use the `-in` and `-out` flags, or use
 shell redirection, to deal with file input/output.
 
-Encryption for another party may be performed by specifying the `-i` parameter
-when running `ss encrypt`.  Their public keyfile must be saved at
-`~/.ss/$them.public` for `ss` to recognize and read the key.
+Encryption for another party is configured by specifying their identity name or
+their pubkey file with the `-i` parameter.  Using identity names requires their
+key to be recorded at `~/.ss/$them.public`.
 
 Decryption is performed using `ss decrypt`.  Like `encrypt`, this operation
 consumes stdin and writes to stdout by default, and the same flags are used to
