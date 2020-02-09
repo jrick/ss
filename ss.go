@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/user"
@@ -24,6 +25,7 @@ import (
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage of %s:
   %[1]s keygen [-i id] [-t time] [-m memory (MiB)] [-c comment]
+  %[1]s chpass [-i id] [-t time] [-m memory (MiB)]
   %[1]s encrypt [-i id|pubkey] [-in input] [-out output]
   %[1]s encrypt -passphrase [-in input] [-out output] [-t time] [-m memory (MiB)]
   %[1]s decrypt [-i id] [-in input] [-out output]
@@ -45,6 +47,9 @@ func main() {
 	case "keygen":
 		fs := new(keygenFlags).parse(os.Args[2:])
 		err = keygen(fs)
+	case "chpass":
+		fs := new(chpassFlags).parse(os.Args[2:])
+		err = chpass(fs)
 	case "encrypt":
 		fs := new(encryptFlags).parse(os.Args[2:])
 		encrypt(fs)
@@ -184,6 +189,104 @@ func keygen(fs *keygenFlags) (err error) {
 	log.Printf("create %v", pkFilename)
 	log.Printf("create %v", skFilename)
 	log.Printf("fingerprint: %s", fp)
+	return nil
+}
+
+type chpassFlags struct {
+	identity string
+	time     uint
+	memory   uint
+	force    bool
+	comment  string
+}
+
+func (f *chpassFlags) parse(args []string) *chpassFlags {
+	fs := flag.NewFlagSet("ss chpass", flag.ExitOnError)
+	fs.StringVar(&f.identity, "i", defaultID, "identity name")
+	fs.UintVar(&f.time, "t", defaultTime, "Argon2id time")
+	fs.UintVar(&f.memory, "m", defaultMemory, "Argon2id memory (MiB)")
+	fs.BoolVar(&f.force, "f", false, "force Argon2id key derivation despite low parameters")
+	fs.StringVar(&f.comment, "c", "", "comment")
+	fs.Parse(args)
+	return f
+}
+
+func chpass(fs *chpassFlags) error {
+	id := fs.identity
+	appdir := appdir()
+	skFilename := filepath.Join(appdir, id+".secret")
+	if _, err := os.Stat(skFilename); os.IsNotExist(err) {
+		return fmt.Errorf("%q not found", skFilename)
+	}
+	skFile, err := os.Open(skFilename)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	time := uint32(fs.time)
+	memory := uint32(fs.memory)
+	if memory < defaultMemory {
+		log.Printf("warning: recommended Argon2id memory parameter is %d MiB",
+			defaultMemory)
+		if !fs.force {
+			return errors.New("choose stronger parameters, use defaults, or force with -f")
+		}
+	}
+
+	prompt := fmt.Sprintf("Current passphrase for %s", skFilename)
+	passphrase, err := promptPassphrase(prompt)
+	if err != nil {
+		return err
+	}
+	if len(passphrase) == 0 {
+		return errors.New("empty passphrase")
+	}
+
+	sk, kf, err := keyfile.OpenSecretKey(skFile, passphrase)
+	if err != nil {
+		log.Printf("%s: %v", skFilename, err)
+		log.Fatal("The secret keyfile cannot be opened.  " +
+			"This may be due to keyfile tampering or an incorrect passphrase.")
+	}
+	skFile.Close()
+
+	prompt = "New passphrase"
+	passphrase, err = promptPassphrase(prompt)
+	if err != nil {
+		return err
+	}
+	if len(passphrase) == 0 {
+		return errors.New("empty passphrase")
+	}
+	prompt += " (again)"
+	passphraseAgain, err := promptPassphrase(prompt)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(passphrase, passphraseAgain) {
+		return errors.New("passphrases do not match")
+	}
+
+	tmpDir, tmpBasename := filepath.Split(skFilename)
+	tmpFi, err := ioutil.TempFile(tmpDir, tmpBasename)
+	if err != nil {
+		return err
+	}
+	err = tmpFi.Chmod(0600)
+	if err != nil {
+		return err
+	}
+	kdfp := &keyfile.Argon2idParams{Time: time, Memory: memory * 1024}
+	err = keyfile.EncryptSecretKey(rand.Reader, tmpFi, sk, passphrase, kdfp, kf)
+	if err != nil {
+		return err
+	}
+	tmpFi.Close()
+	err = os.Rename(tmpFi.Name(), skFilename)
+	if err != nil {
+		return err
+	}
+	log.Printf("rewrite %v", skFilename)
 	return nil
 }
 
@@ -343,7 +446,7 @@ func decrypt(fs *decryptFlags) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		sk, err := keyfile.OpenSecretKey(skFile, passphrase)
+		sk, _, err := keyfile.OpenSecretKey(skFile, passphrase)
 		if err != nil {
 			log.Printf("%s: %v", skFilename, err)
 			log.Fatal("The secret keyfile cannot be opened.  " +
