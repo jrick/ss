@@ -197,7 +197,6 @@ type chpassFlags struct {
 	time     uint
 	memory   uint
 	force    bool
-	comment  string
 }
 
 func (f *chpassFlags) parse(args []string) *chpassFlags {
@@ -206,7 +205,6 @@ func (f *chpassFlags) parse(args []string) *chpassFlags {
 	fs.UintVar(&f.time, "t", defaultTime, "Argon2id time")
 	fs.UintVar(&f.memory, "m", defaultMemory, "Argon2id memory (MiB)")
 	fs.BoolVar(&f.force, "f", false, "force Argon2id key derivation despite low parameters")
-	fs.StringVar(&f.comment, "c", "", "comment")
 	fs.Parse(args)
 	return f
 }
