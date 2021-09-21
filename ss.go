@@ -38,13 +38,15 @@ func init() {
 }
 
 func main() {
-	pledge("stdio rpath wpath cpath getpw tty")
+	err := pledge("stdio rpath wpath cpath getpw tty")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
 
 	flag.Parse()          // for -h usage
 	if len(os.Args) < 2 { // one command is required
 		usage()
 	}
-	var err error
 	switch os.Args[1] {
 	case "keygen":
 		fs := new(keygenFlags).parse(os.Args[2:])
