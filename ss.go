@@ -38,6 +38,8 @@ func init() {
 }
 
 func main() {
+	pledge("stdio rpath wpath cpath getpw tty")
+
 	flag.Parse()          // for -h usage
 	if len(os.Args) < 2 { // one command is required
 		usage()
