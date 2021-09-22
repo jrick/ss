@@ -146,6 +146,22 @@ func keygen(fs *keygenFlags) (err error) {
 		}
 	}()
 
+	pkFile, err := os.OpenFile(pkFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer pkFile.Close()
+	skFile, err := os.OpenFile(skFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer skFile.Close()
+
+	err = pledge("stdio tty")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
+
 	time := uint32(fs.time)
 	memory := uint32(fs.memory)
 	if memory < defaultMemory {
@@ -169,20 +185,15 @@ func keygen(fs *keygenFlags) (err error) {
 	if err != nil {
 		return err
 	}
+
+	err = pledge("stdio")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
+
 	if !bytes.Equal(passphrase, passphraseAgain) {
 		return errors.New("passphrases do not match")
 	}
-
-	pkFile, err := os.OpenFile(pkFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer pkFile.Close()
-	skFile, err := os.OpenFile(skFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer skFile.Close()
 
 	kdfp := &keyfile.Argon2idParams{Time: time, Memory: memory * 1024}
 	fp, err := keyfile.GenerateKeys(rand.Reader, pkFile, skFile, passphrase, kdfp, fs.comment)
@@ -222,6 +233,17 @@ func chpass(fs *chpassFlags) error {
 	skFile, err := os.Open(skFilename)
 	if err != nil {
 		log.Fatal(err)
+	}
+	tmpDir, tmpBasename := filepath.Split(skFilename)
+	tmpFi, err := os.CreateTemp(tmpDir, tmpBasename)
+	if err != nil {
+		return err
+	}
+	tmpFiName := tmpFi.Name()
+
+	err = pledge("stdio rpath cpath tty")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
 	}
 
 	time := uint32(fs.time)
@@ -268,18 +290,19 @@ func chpass(fs *chpassFlags) error {
 		return errors.New("passphrases do not match")
 	}
 
-	tmpDir, tmpBasename := filepath.Split(skFilename)
-	tmpFi, err := os.CreateTemp(tmpDir, tmpBasename)
+	// rpath necessary for os.Lstat performed by os.Rename
+	err = pledge("stdio rpath cpath")
 	if err != nil {
-		return err
+		log.Fatalf("pledge: %v", err)
 	}
+
 	kdfp := &keyfile.Argon2idParams{Time: time, Memory: memory * 1024}
 	err = keyfile.EncryptSecretKey(rand.Reader, tmpFi, sk, passphrase, kdfp, kf)
 	if err != nil {
 		return err
 	}
 	tmpFi.Close()
-	err = os.Rename(tmpFi.Name(), skFilename)
+	err = os.Rename(tmpFiName, skFilename)
 	if err != nil {
 		return err
 	}
@@ -343,60 +366,95 @@ func encrypt(fs *encryptFlags) {
 		}
 	}
 
-	var header []byte
-	var key *stream.SymmetricKey
-	var err error
 	if fs.passphrase {
-		time := uint32(fs.time)
-		memory := uint32(fs.memory)
-		if memory < defaultMemory {
-			log.Printf("warning: recommended Argon2id memory parameter is %d MiB",
-				defaultMemory)
-			if !fs.force {
-				log.Fatal("choose stronger parameters, use defaults, or force with -f")
-			}
-		}
-		memory *= 1024
+		encryptPassphrase(fs, out, in)
+		return
+	}
 
-		passphrase, err := promptPassphrase("Encryption passphrase")
-		if err != nil {
-			log.Fatal(err)
-		}
-		passphraseAgain, err := promptPassphrase("Encryption passphrase (again)")
-		if err != nil {
-			log.Fatal(err)
-		}
-		if !bytes.Equal(passphrase, passphraseAgain) {
-			log.Fatal("passphrases do not match")
-		}
-		header, key, err = stream.PassphraseHeader(rand.Reader, passphrase, time, memory)
-		if err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		// Read identity's public key
-		pkFilename := fs.id
-		if !strings.HasSuffix(pkFilename, ".public") {
-			appdir := appdir()
-			pkFilename = filepath.Join(appdir, fs.id+".public")
-		}
-		if _, err := os.Stat(pkFilename); os.IsNotExist(err) {
-			log.Printf("%s does not exist", pkFilename)
-			log.Fatal("use '-i' flag to choose another identity or generate default keys with 'ss keygen'")
-		}
-		pkFile, err := os.Open(pkFilename)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pk, err := keyfile.ReadPublicKey(pkFile)
-		if err != nil {
-			log.Fatalf("%s: %v", pkFilename, err)
-		}
+	err := pledge("stdio rpath getpw")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
 
-		header, key, err = stream.Encapsulate(rand.Reader, pk)
-		if err != nil {
-			log.Fatal(err)
+	appdir := appdir()
+
+	err = pledge("stdio rpath")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
+
+	// Read identity's public key
+	pkFilename := fs.id
+	if !strings.HasSuffix(pkFilename, ".public") {
+		pkFilename = filepath.Join(appdir, fs.id+".public")
+	}
+	if _, err := os.Stat(pkFilename); os.IsNotExist(err) {
+		log.Printf("%s does not exist", pkFilename)
+		log.Fatal("use '-i' flag to choose another identity or generate default keys with 'ss keygen'")
+	}
+	pkFile, err := os.Open(pkFilename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	pk, err := keyfile.ReadPublicKey(pkFile)
+	if err != nil {
+		log.Fatalf("%s: %v", pkFilename, err)
+	}
+
+	err = pledge("stdio")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
+
+	header, key, err := stream.Encapsulate(rand.Reader, pk)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = stream.Encrypt(out, in, header, key)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func encryptPassphrase(fs *encryptFlags, out io.Writer, in io.Reader) {
+	err := pledge("stdio tty")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
+
+	time := uint32(fs.time)
+	memory := uint32(fs.memory)
+	if memory < defaultMemory {
+		log.Printf("warning: recommended Argon2id memory parameter is %d MiB",
+			defaultMemory)
+		if !fs.force {
+			log.Fatal("choose stronger parameters, use defaults, or force with -f")
 		}
+	}
+	memory *= 1024
+
+	passphrase, err := promptPassphrase("Encryption passphrase")
+	if err != nil {
+		log.Fatal(err)
+	}
+	passphraseAgain, err := promptPassphrase("Encryption passphrase (again)")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = pledge("stdio")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
+
+	if !bytes.Equal(passphrase, passphraseAgain) {
+		log.Fatal("passphrases do not match")
+	}
+
+	header, key, err := stream.PassphraseHeader(rand.Reader, passphrase, time, memory)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	err = stream.Encrypt(out, in, header, key)
@@ -422,9 +480,32 @@ func (f *decryptFlags) parse(args []string) *decryptFlags {
 
 func decrypt(fs *decryptFlags) {
 	out, in := stdio(fs.out, fs.in)
+	appdir := appdir()
+
+	err := pledge("stdio rpath tty")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
+
 	header, err := stream.ReadHeader(in)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	var skFilename string
+	var skFile *os.File
+	switch header.Scheme {
+	case stream.StreamlinedNTRUPrime4591761Scheme:
+		skFilename = filepath.Join(appdir, fs.id+".secret")
+		skFile, err = os.Open(skFilename)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	err = pledge("stdio tty")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
 	}
 
 	var key *stream.SymmetricKey
@@ -433,16 +514,16 @@ func decrypt(fs *decryptFlags) {
 		panic(header.Scheme)
 	case stream.StreamlinedNTRUPrime4591761Scheme:
 		// Read and decrypt secret key
-		appdir := appdir()
-		skFilename := filepath.Join(appdir, fs.id+".secret")
-		skFile, err := os.Open(skFilename)
-		if err != nil {
-			log.Fatal(err)
-		}
 		passphrase, err := promptPassphrase(fmt.Sprintf("Key passphrase for %s", skFilename))
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		err = pledge("stdio")
+		if err != nil {
+			log.Fatalf("pledge: %v", err)
+		}
+
 		sk, _, err := keyfile.OpenSecretKey(skFile, passphrase)
 		if err != nil {
 			log.Printf("%s: %v", skFilename, err)
@@ -458,6 +539,12 @@ func decrypt(fs *decryptFlags) {
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		err = pledge("stdio")
+		if err != nil {
+			log.Fatalf("pledge: %v", err)
+		}
+
 		key, err = stream.PassphraseKey(header, passphrase)
 		if err != nil {
 			log.Fatal(err)
