@@ -36,8 +36,45 @@ func init() {
 	flag.Usage = usage
 }
 
+var appdir string
+
 func main() {
-	err := pledge("stdio rpath wpath cpath getpw tty")
+	err := pledge("stdio rpath wpath cpath getpw tty unveil")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
+	}
+
+	appdir = func() string {
+		u, err := user.Current()
+		if err != nil {
+			log.Printf("appdir: %v", err)
+			return "."
+		}
+		if u.HomeDir == "" {
+			log.Printf("appdir: user homedir is unknown")
+			return "."
+		}
+		dir := filepath.Join(u.HomeDir, ".ss")
+		err = unveil(dir, "rwc")
+		if err != nil {
+			log.Fatalf("unveil: %v", err)
+		}
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err = os.MkdirAll(dir, 0700)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		return dir
+	}()
+	if appdir == "." {
+		err = unveil(appdir, "rwc")
+		if err != nil {
+			log.Fatalf("unveil: %v", err)
+		}
+	}
+
+	err = pledge("stdio rpath wpath cpath tty unveil")
 	if err != nil {
 		log.Fatalf("pledge: %v", err)
 	}
@@ -108,29 +145,8 @@ func promptPassphrase(prompt string) ([]byte, error) {
 	return passphrase, err
 }
 
-func appdir() string {
-	u, err := user.Current()
-	if err != nil {
-		log.Printf("appdir: %v", err)
-		return ""
-	}
-	if u.HomeDir == "" {
-		log.Printf("appdir: user homedir is unknown")
-		return ""
-	}
-	dir := filepath.Join(u.HomeDir, ".ss")
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0700)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	return dir
-}
-
 func keygen(fs *keygenFlags) (err error) {
 	id := fs.identity
-	appdir := appdir()
 	pkFilename := filepath.Join(appdir, id+".public")
 	skFilename := filepath.Join(appdir, id+".secret")
 	if _, err := os.Stat(pkFilename); !os.IsNotExist(err) {
@@ -225,7 +241,6 @@ func (f *chpassFlags) parse(args []string) *chpassFlags {
 
 func chpass(fs *chpassFlags) error {
 	id := fs.identity
-	appdir := appdir()
 	skFilename := filepath.Join(appdir, id+".secret")
 	if _, err := os.Stat(skFilename); os.IsNotExist(err) {
 		return fmt.Errorf("%q not found", skFilename)
@@ -340,12 +355,24 @@ func stdio(outFlag, inFlag string) (io.Writer, io.Reader) {
 	in := os.Stdin
 	var err error
 	if outFlag != "" && outFlag != "-" {
+		err = unveil(outFlag, "rwc")
+		if err != nil {
+			log.Fatalf("unveil: %v", err)
+		}
 		out, err = os.Create(outFlag)
 		if err != nil {
 			log.Fatal(err)
 		}
+		err = unveil(outFlag, "w")
+		if err != nil {
+			log.Fatalf("unveil: %v", err)
+		}
 	}
 	if inFlag != "" && inFlag != "-" {
+		err = unveil(inFlag, "r")
+		if err != nil {
+			log.Fatalf("unveil: %v", err)
+		}
 		in, err = os.Open(inFlag)
 		if err != nil {
 			log.Fatal(err)
@@ -355,6 +382,13 @@ func stdio(outFlag, inFlag string) (io.Writer, io.Reader) {
 }
 
 func encrypt(fs *encryptFlags) {
+	if appdir != "." {
+		err := unveil(appdir, "r")
+		if err != nil {
+			log.Fatalf("unveil: %v", err)
+		}
+	}
+
 	out, in := stdio(fs.out, fs.in)
 	switch out := out.(type) {
 	case interface{ Fd() uintptr }: // implemented by *os.File
@@ -371,14 +405,7 @@ func encrypt(fs *encryptFlags) {
 		return
 	}
 
-	err := pledge("stdio rpath getpw")
-	if err != nil {
-		log.Fatalf("pledge: %v", err)
-	}
-
-	appdir := appdir()
-
-	err = pledge("stdio rpath")
+	err := pledge("stdio rpath unveil")
 	if err != nil {
 		log.Fatalf("pledge: %v", err)
 	}
@@ -387,23 +414,35 @@ func encrypt(fs *encryptFlags) {
 	pkFilename := fs.id
 	if !strings.HasSuffix(pkFilename, ".public") {
 		pkFilename = filepath.Join(appdir, fs.id+".public")
+		err = unveil(appdir, "")
+		if err != nil {
+			log.Fatalf("unveil: %v", err)
+		}
+	}
+	err = unveil(pkFilename, "r")
+	if err != nil {
+		log.Fatalf("unveil: %v", err)
+	}
+	err = pledge("stdio rpath")
+	if err != nil {
+		log.Fatalf("pledge: %v", err)
 	}
 	if _, err := os.Stat(pkFilename); os.IsNotExist(err) {
 		log.Printf("%s does not exist", pkFilename)
-		log.Fatal("use '-i' flag to choose another identity or generate default keys with 'ss keygen'")
+		log.Fatal("use '-i' flag to choose another identity or generate default " +
+			"keys with 'ss keygen'")
 	}
 	pkFile, err := os.Open(pkFilename)
 	if err != nil {
 		log.Fatal(err)
 	}
-	pk, err := keyfile.ReadPublicKey(pkFile)
-	if err != nil {
-		log.Fatalf("%s: %v", pkFilename, err)
-	}
-
 	err = pledge("stdio")
 	if err != nil {
 		log.Fatalf("pledge: %v", err)
+	}
+	pk, err := keyfile.ReadPublicKey(pkFile)
+	if err != nil {
+		log.Fatalf("%s: %v", pkFilename, err)
 	}
 
 	header, key, err := stream.Encapsulate(rand.Reader, pk)
@@ -442,12 +481,10 @@ func encryptPassphrase(fs *encryptFlags, out io.Writer, in io.Reader) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	err = pledge("stdio")
 	if err != nil {
 		log.Fatalf("pledge: %v", err)
 	}
-
 	if !bytes.Equal(passphrase, passphraseAgain) {
 		log.Fatal("passphrases do not match")
 	}
@@ -479,40 +516,36 @@ func (f *decryptFlags) parse(args []string) *decryptFlags {
 }
 
 func decrypt(fs *decryptFlags) {
-	out, in := stdio(fs.out, fs.in)
-	appdir := appdir()
-
-	err := pledge("stdio rpath tty")
-	if err != nil {
-		log.Fatalf("pledge: %v", err)
-	}
-
-	header, err := stream.ReadHeader(in)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var skFilename string
-	var skFile *os.File
-	switch header.Scheme {
-	case stream.StreamlinedNTRUPrime4591761Scheme:
-		skFilename = filepath.Join(appdir, fs.id+".secret")
-		skFile, err = os.Open(skFilename)
+	if appdir != "." {
+		err := unveil(appdir, "r")
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("unveil: %v", err)
 		}
 	}
 
-	err = pledge("stdio tty")
+	out, in := stdio(fs.out, fs.in)
+
+	skFilename := filepath.Join(appdir, fs.id+".secret")
+	skFile, skOpenErr := os.Open(skFilename)
+
+	err := pledge("stdio tty")
 	if err != nil {
 		log.Fatalf("pledge: %v", err)
 	}
 
 	var key *stream.SymmetricKey
+	header, err := stream.ReadHeader(in)
+	if err != nil {
+		log.Fatal(err)
+	}
 	switch header.Scheme {
 	default:
 		panic(header.Scheme)
 	case stream.StreamlinedNTRUPrime4591761Scheme:
+		if skOpenErr != nil {
+			log.Fatal(skOpenErr)
+		}
+
 		// Read and decrypt secret key
 		passphrase, err := promptPassphrase(fmt.Sprintf("Key passphrase for %s", skFilename))
 		if err != nil {
