@@ -10,7 +10,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/user"
@@ -270,11 +269,7 @@ func chpass(fs *chpassFlags) error {
 	}
 
 	tmpDir, tmpBasename := filepath.Split(skFilename)
-	tmpFi, err := ioutil.TempFile(tmpDir, tmpBasename)
-	if err != nil {
-		return err
-	}
-	err = tmpFi.Chmod(0600)
+	tmpFi, err := os.CreateTemp(tmpDir, tmpBasename)
 	if err != nil {
 		return err
 	}
