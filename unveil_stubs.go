@@ -2,7 +2,7 @@
 
 package main
 
-func unveil(path, flags string) error {
+func unveil(path, permissions string) error {
 	return nil
 }
 

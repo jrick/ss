@@ -2,8 +2,8 @@ package main
 
 import "golang.org/x/sys/unix"
 
-func unveil(path, flags string) error {
-	return unix.Unveil(path, flags)
+func unveil(path, permissions string) error {
+	return unix.Unveil(path, permissions)
 }
 
 func unveilBlock() error {
