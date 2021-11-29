@@ -41,7 +41,7 @@ this output does not require any additional options.
 ## Install
 
 ```
-$ go install github.com/jrick/ss
+$ go install github.com/jrick/ss@latest
 ```
 
 ## FAQ
