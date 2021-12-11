@@ -173,7 +173,7 @@ func keygen(fs *keygenFlags) (err error) {
 	}
 	defer skFile.Close()
 
-	err = pledge("stdio tty")
+	err = pledge("stdio cpath tty")
 	if err != nil {
 		log.Fatalf("pledge: %v", err)
 	}
@@ -202,7 +202,7 @@ func keygen(fs *keygenFlags) (err error) {
 		return err
 	}
 
-	err = pledge("stdio")
+	err = pledge("stdio cpath")
 	if err != nil {
 		log.Fatalf("pledge: %v", err)
 	}
