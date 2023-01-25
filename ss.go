@@ -60,7 +60,7 @@ func main() {
 			log.Fatalf("unveil: %v", err)
 		}
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			err = os.MkdirAll(dir, 0700)
+			err = os.Mkdir(dir, 0700)
 			if err != nil {
 				log.Fatal(err)
 			}
