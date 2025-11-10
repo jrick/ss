@@ -1,11 +1,11 @@
 module github.com/jrick/ss
 
-go 1.17
+go 1.24.0
 
 require (
-	github.com/companyzero/sntrup4591761 v0.0.0-20200131011700-2b0d299dbd22
-	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
-	golang.org/x/sys v0.15.0
+	github.com/companyzero/sntrup4591761 v0.0.0-20220309191932-9e0f3af2f07a
+	golang.org/x/crypto v0.43.0
+	golang.org/x/sys v0.38.0
 )
 
-require golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1 // indirect
+require golang.org/x/term v0.36.0 // indirect
