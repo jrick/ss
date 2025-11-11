@@ -25,16 +25,18 @@ const saltsize = 16
 // Argon2idParams describes the difficulty parameters used when deriving a
 // symmetric encryption key from a passphrase using the Argon2id KDF.
 type Argon2idParams struct {
-	Time   uint32
-	Memory uint32
+	Time    uint32
+	Memory  uint32
+	Threads uint8
 }
 
 // NewArgon2idParams creates the Argon2id parameters from time and memory
 // (measured in KiB) values.
 func NewArgon2idParams(time, memoryKiB uint32) *Argon2idParams {
 	return &Argon2idParams{
-		Time:   time,
-		Memory: memoryKiB,
+		Time:    time,
+		Memory:  memoryKiB,
+		Threads: uint8(min(runtime.NumCPU(), 256)),
 	}
 }
 
@@ -57,10 +59,10 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 	if err != nil {
 		return "", err
 	}
-	ncpu := uint8(min(runtime.NumCPU(), 256))
 	time := kdfp.Time
 	memory := kdfp.Memory
-	skKey := argon2.IDKey(passphrase, salt, time, memory, ncpu, chacha20poly1305.KeySize)
+	threads := kdfp.Threads
+	skKey := argon2.IDKey(passphrase, salt, time, memory, threads, chacha20poly1305.KeySize)
 
 	// Generate NTRU Prime key
 	pk, sk, err := sntrup4591761.GenerateKey(rand)
@@ -96,7 +98,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 		Comment:     comment,
 		Fingerprint: fingerprint,
 	}
-	err = writeSecretKey(buf, sk, kf, skKey, salt, time, memory, ncpu)
+	err = writeSecretKey(buf, sk, kf, skKey, salt, time, memory, threads)
 	if err != nil {
 		return "", err
 	}
@@ -142,13 +144,13 @@ func EncryptSecretKey(rand io.Reader, skw io.Writer, sk *SecretKey, passphrase [
 	if err != nil {
 		return err
 	}
-	ncpu := uint8(min(runtime.NumCPU(), 256))
 	time := kdfp.Time
 	memory := kdfp.Memory
-	skKey := argon2.IDKey(passphrase, salt, time, memory, ncpu, chacha20poly1305.KeySize)
+	threads := uint8(min(runtime.NumCPU(), 256))
+	skKey := argon2.IDKey(passphrase, salt, time, memory, threads, chacha20poly1305.KeySize)
 
 	buf := new(bytes.Buffer)
-	err = writeSecretKey(buf, sk, kf, skKey, salt, time, memory, ncpu)
+	err = writeSecretKey(buf, sk, kf, skKey, salt, time, memory, threads)
 	if err != nil {
 		return err
 	}
