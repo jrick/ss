@@ -11,7 +11,7 @@ import (
 	"math/bits"
 	"runtime"
 
-	ntrup "github.com/companyzero/sntrup4591761"
+	"github.com/companyzero/sntrup4591761"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/poly1305"
@@ -43,15 +43,15 @@ func (c *counter) inc() {
 
 // PublicKey is a type alias for a properly-sized byte array to represent a
 // Streamlined NTRU Prime 4591^761 public key.
-type PublicKey = [ntrup.PublicKeySize]byte
+type PublicKey = [sntrup4591761.PublicKeySize]byte
 
 // SecretKey is a type alias for a properly-sized byte array to represent a
 // Streamlined NTRU Prime 4591^761 secret key.
-type SecretKey = [ntrup.PrivateKeySize]byte
+type SecretKey = [sntrup4591761.PrivateKeySize]byte
 
 // Ciphertext is a type alias for a properly-sized byte array to represent the
 // ciphertext of a Streamlined NTRU Prime 4591^761 encapsulated key.
-type Ciphertext = [ntrup.CiphertextSize]byte
+type Ciphertext = [sntrup4591761.CiphertextSize]byte
 
 // SymmetricKey is a type alias for a properly-sized byte array for a
 // ChaCha20-Poly1305 symmetric encryption key.
@@ -81,7 +81,7 @@ const (
 func Encapsulate(rand io.Reader, pk *PublicKey) (header []byte, key *SymmetricKey, err error) {
 	// Derive and encapsulate an ephemeral shared symmetric key to encrypt a
 	// message that can only be decapsulated using pk's secret key.
-	sharedKeyCiphertext, sharedKeyPlaintext, err := ntrup.Encapsulate(rand, pk)
+	sharedKeyCiphertext, sharedKeyPlaintext, err := sntrup4591761.Encapsulate(rand, pk)
 	if err != nil {
 		return
 	}
@@ -262,7 +262,7 @@ func Decapsulate(h *Header, sk *SecretKey) (*SymmetricKey, error) {
 	if h.Scheme != StreamlinedNTRUPrime4591761Scheme {
 		return nil, errors.New("stream: nothing to decapsulate in header")
 	}
-	sharedKeyPlaintext, ok := ntrup.Decapsulate(h.Ciphertext, sk)
+	sharedKeyPlaintext, ok := sntrup4591761.Decapsulate(h.Ciphertext, sk)
 	if ok != 1 {
 		return nil, errors.New("stream: cannot decapsulate message key")
 	}

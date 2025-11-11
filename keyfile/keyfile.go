@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	ntrup "github.com/companyzero/sntrup4591761"
+	"github.com/companyzero/sntrup4591761"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -54,7 +54,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 	skKey := argon2.IDKey(passphrase, salt, time, memory, ncpu, chacha20poly1305.KeySize)
 
 	// Generate NTRU Prime key
-	pk, sk, err := ntrup.GenerateKey(rand)
+	pk, sk, err := sntrup4591761.GenerateKey(rand)
 	if err != nil {
 		return "", err
 	}
@@ -206,11 +206,11 @@ func requireFields(fields, required map[string]string) error {
 
 // PublicKey is a type alias for a properly-sized byte array to represent a
 // Streamlined NTRU Prime 4591^761 public key.
-type PublicKey = [ntrup.PublicKeySize]byte
+type PublicKey = [sntrup4591761.PublicKeySize]byte
 
 // SecretKey is a type alias for a properly-sized byte array to represent a
 // Streamlined NTRU Prime 4591^761 secret key.
-type SecretKey = [ntrup.PrivateKeySize]byte
+type SecretKey = [sntrup4591761.PrivateKeySize]byte
 
 // ReadPublicKey reads a Streamlined NTRU Prime 4591^761 public key in the
 // keyfile format from r.
@@ -230,7 +230,7 @@ func ReadPublicKey(r io.Reader) (*PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(key) != ntrup.PublicKeySize {
+	if len(key) != sntrup4591761.PublicKeySize {
 		return nil, fmt.Errorf("public key has invalid length %d", len(key))
 	}
 	pk := new(PublicKey)
