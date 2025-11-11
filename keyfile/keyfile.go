@@ -29,6 +29,15 @@ type Argon2idParams struct {
 	Memory uint32
 }
 
+// NewArgon2idParams creates the Argon2id parameters from time and memory
+// (measured in KiB) values.
+func NewArgon2idParams(time, memoryKiB uint32) *Argon2idParams {
+	return &Argon2idParams{
+		Time:   time,
+		Memory: memoryKiB,
+	}
+}
+
 // Keyfields describes keyfile fields that must be preserved when a key is
 // reencrypted.
 type Keyfields struct {

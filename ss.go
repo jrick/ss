@@ -211,7 +211,7 @@ func keygen(fs *keygenFlags) (err error) {
 		return errors.New("passphrases do not match")
 	}
 
-	kdfp := &keyfile.Argon2idParams{Time: time, Memory: memory * 1024}
+	kdfp := keyfile.NewArgon2idParams(time, memory*1024)
 	fp, err := keyfile.GenerateKeys(rand.Reader, pkFile, skFile, passphrase, kdfp, fs.comment)
 	if err != nil {
 		return err
@@ -311,7 +311,7 @@ func chpass(fs *chpassFlags) error {
 		log.Fatalf("pledge: %v", err)
 	}
 
-	kdfp := &keyfile.Argon2idParams{Time: time, Memory: memory * 1024}
+	kdfp := keyfile.NewArgon2idParams(time, memory*1024)
 	err = keyfile.EncryptSecretKey(rand.Reader, tmpFi, sk, passphrase, kdfp, kf)
 	if err != nil {
 		return err
