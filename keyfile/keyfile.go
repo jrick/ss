@@ -48,7 +48,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 	if err != nil {
 		return "", err
 	}
-	ncpu := uint8(max(runtime.NumCPU(), 256))
+	ncpu := uint8(min(runtime.NumCPU(), 256))
 	time := kdfp.Time
 	memory := kdfp.Memory
 	skKey := argon2.IDKey(passphrase, salt, time, memory, ncpu, chacha20poly1305.KeySize)
@@ -133,7 +133,7 @@ func EncryptSecretKey(rand io.Reader, skw io.Writer, sk *SecretKey, passphrase [
 	if err != nil {
 		return err
 	}
-	ncpu := uint8(max(runtime.NumCPU(), 256))
+	ncpu := uint8(min(runtime.NumCPU(), 256))
 	time := kdfp.Time
 	memory := kdfp.Memory
 	skKey := argon2.IDKey(passphrase, salt, time, memory, ncpu, chacha20poly1305.KeySize)
