@@ -539,8 +539,6 @@ func decrypt(fs *decryptFlags) {
 		log.Fatal(err)
 	}
 	switch header.Scheme {
-	default:
-		panic(header.Scheme)
 	case stream.StreamlinedNTRUPrime4591761Scheme:
 		if skOpenErr != nil {
 			log.Fatal(skOpenErr)
@@ -582,6 +580,8 @@ func decrypt(fs *decryptFlags) {
 		if err != nil {
 			log.Fatal(err)
 		}
+	default:
+		log.Fatalf("Unknown encryption scheme '%d'", header.Scheme)
 	}
 	err = stream.Decrypt(out, in, header.Bytes, key)
 	if err != nil {
