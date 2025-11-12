@@ -26,7 +26,7 @@ type KEM interface {
 	String() string
 
 	// GenerateKey deterministically derives the KEM public key from the seed.
-	// Seeds must 64 bytes of entropy.
+	// Seeds must provide 64 bytes of entropy.
 	// The serialized private key is never exposed by this interface.
 	GenerateKey(seed []byte) (pubkey []byte, err error)
 
@@ -39,10 +39,10 @@ type KEM interface {
 	//
 	// If seed not SeedSize, but is instead the size of the KEM's
 	// serialized private key, for legacy compatibility, the seed
-	// parameter will be interpreted as the private key instead of
-	// generating the private key from the seed.  Only the SNTRUP4591761
-	// KEM supports this legacy behavior, due to existing keyfiles that
-	// contain the private keys.
+	// parameter will be interpreted as the private key rather than
+	// generating the private key from the seed.  Only the sntrup4591761
+	// KEM supports this legacy behavior due to existing keyfiles that
+	// contain private keys.
 	//
 	// The shared key will always be 32-bytes long and suitable to use to
 	// key an AEAD.
