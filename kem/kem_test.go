@@ -10,7 +10,7 @@ import (
 )
 
 func TestSntrup4591761RoundTrip(t *testing.T) {
-	kem := NewSNTRUP4591761()
+	kem := SNTRUP4591761()
 
 	seed := make([]byte, 64)
 	_, err := rand.Read(seed)

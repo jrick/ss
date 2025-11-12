@@ -43,9 +43,11 @@ type KEM interface {
 
 type kemSNTRUP4591761 struct{}
 
-// NewSNTRUP4591761 returns a KEM implementation for sntrup4591761.
-func NewSNTRUP4591761() KEM {
-	return new(kemSNTRUP4591761)
+var _kemSNTRUP4591761 = new(kemSNTRUP4591761)
+
+// SNTRUP4591761 returns a KEM implementation for sntrup4591761.
+func SNTRUP4591761() KEM {
+	return _kemSNTRUP4591761
 }
 
 func (kemSNTRUP4591761) String() string {

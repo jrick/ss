@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jrick/ss/kem"
 	"github.com/jrick/ss/keyfile"
 	"github.com/jrick/ss/stream"
 	"golang.org/x/crypto/ssh/terminal"
@@ -211,8 +212,9 @@ func keygen(fs *keygenFlags) (err error) {
 		return errors.New("passphrases do not match")
 	}
 
+	kem := kem.SNTRUP4591761()
 	kdfp := keyfile.NewArgon2idParams(time, memory*1024)
-	fp, err := keyfile.GenerateKeys(rand.Reader, pkFile, skFile, passphrase, kdfp, fs.comment)
+	fp, err := keyfile.GenerateKeys(rand.Reader, pkFile, skFile, kem, passphrase, kdfp, fs.comment)
 	if err != nil {
 		return err
 	}
@@ -280,7 +282,7 @@ func chpass(fs *chpassFlags) error {
 		return errors.New("empty passphrase")
 	}
 
-	sk, kf, err := keyfile.OpenSecretKey(skFile, passphrase)
+	kem, sk, kf, err := keyfile.OpenSecretKey(skFile, passphrase)
 	if err != nil {
 		log.Printf("%s: %v", skFilename, err)
 		log.Fatal("The secret keyfile cannot be opened.  " +
@@ -312,7 +314,7 @@ func chpass(fs *chpassFlags) error {
 	}
 
 	kdfp := keyfile.NewArgon2idParams(time, memory*1024)
-	err = keyfile.EncryptSecretKey(rand.Reader, tmpFi, sk, passphrase, kdfp, kf)
+	err = keyfile.EncryptSecretKey(rand.Reader, tmpFi, kem, sk, passphrase, kdfp, kf)
 	if err != nil {
 		return err
 	}
@@ -440,12 +442,12 @@ func encrypt(fs *encryptFlags) {
 	if err != nil {
 		log.Fatalf("pledge: %v", err)
 	}
-	pk, err := keyfile.ReadPublicKey(pkFile)
+	kem, pk, err := keyfile.ReadPublicKey(pkFile)
 	if err != nil {
 		log.Fatalf("%s: %v", pkFilename, err)
 	}
 
-	header, key, err := stream.Encapsulate(pk)
+	header, key, err := stream.Encapsulate(kem, pk)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -555,11 +557,15 @@ func decrypt(fs *decryptFlags) {
 			log.Fatalf("pledge: %v", err)
 		}
 
-		sk, _, err := keyfile.OpenSecretKey(skFile, passphrase)
+		kem, sk, _, err := keyfile.OpenSecretKey(skFile, passphrase)
 		if err != nil {
 			log.Printf("%s: %v", skFilename, err)
 			log.Fatal("The secret keyfile cannot be opened.  " +
 				"This may be due to keyfile tampering or an incorrect passphrase.")
+		}
+		if kem != header.KEM {
+			log.Fatalf("KEM mismatch between encrypted stream (%v) and keyfile (%v).  "+
+				"Use -i to select other identity keyfiles.", header.KEM, kem)
 		}
 		aeadKey, err = stream.Decapsulate(header, sk)
 		if err != nil {

@@ -63,9 +63,7 @@ const (
 // an ephemeral ChaCha20-Poly1305 symmetric key and encapsulates (encrypts) the
 // key for the public key pk, recording the key ciphertext in the header.
 // Cryptographically-secure randomness is read from rand.
-func Encapsulate(pubkey []byte) (header []byte, aeadKey []byte, err error) {
-	kem := kem.NewSNTRUP4591761()
-
+func Encapsulate(kem kem.KEM, pubkey []byte) (header []byte, aeadKey []byte, err error) {
 	// Derive and encapsulate an ephemeral shared symmetric key to encrypt a
 	// message that can only be decapsulated using pk's secret key.
 	sharedKeyCiphertext, sharedKeyPlaintext, err := kem.Encapsulate(pubkey)
@@ -193,6 +191,7 @@ type Header struct {
 	Scheme KeyScheme
 
 	// For KEM schemes
+	KEM        kem.KEM
 	Ciphertext []byte
 
 	// For Argon2idScheme
@@ -222,6 +221,7 @@ func ReadHeader(r io.Reader) (*Header, error) {
 			return nil, err
 		}
 		h.Ciphertext = h.Bytes[1:]
+		h.KEM = kem.SNTRUP4591761()
 	case Argon2idScheme:
 		h.Bytes = make([]byte, 1+16+9+overhead)
 		h.Bytes[0] = scheme[0]
@@ -247,10 +247,8 @@ func Decapsulate(h *Header, privkey []byte) (aeadKey []byte, err error) {
 		return nil, errors.New("stream: nothing to decapsulate in header")
 	}
 
-	kem := kem.NewSNTRUP4591761()
-
 	var pubkey []byte // No pubkey for sntrup4591761 decapsulate.
-	sharedKeyPlaintext, err := kem.Decapsulate(pubkey, privkey, h.Ciphertext)
+	sharedKeyPlaintext, err := h.KEM.Decapsulate(pubkey, privkey, h.Ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("stream: cannot decapsulate message key: %w", err)
 	}

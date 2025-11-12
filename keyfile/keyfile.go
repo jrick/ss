@@ -52,7 +52,7 @@ type Keyfields struct {
 // The secret key is encrypted with ChaCha20-Poly1305 using a symmetric key
 // derived using Argon2id from passphrase and specified KDF parameters.
 // Cryptographically-secure randomness is provided by rand.
-func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *Argon2idParams, comment string) (fingerprint string, err error) {
+func GenerateKeys(rand io.Reader, pkw, skw io.Writer, kem kem.KEM, passphrase []byte, kdfp *Argon2idParams, comment string) (fingerprint string, err error) {
 	// Derive secret keyfile encryption key from password using Argon2id
 	salt := make([]byte, saltsize)
 	_, err = rand.Read(salt)
@@ -63,9 +63,6 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 	memory := kdfp.Memory
 	threads := kdfp.Threads
 	skKey := argon2.IDKey(passphrase, salt, time, memory, threads, chacha20poly1305.KeySize)
-
-	// Use the sntrup4591761 KEM.
-	kem := kem.NewSNTRUP4591761()
 
 	// Generate keys
 	seed := make([]byte, 64)
@@ -147,10 +144,7 @@ func writeSecretKey(kemName string, buf *bytes.Buffer, sk []byte, kf Keyfields, 
 }
 
 // EncryptSecretKey writes the secret key encrypted in keyfile format to skw.
-func EncryptSecretKey(rand io.Reader, skw io.Writer, sk []byte, passphrase []byte, kdfp *Argon2idParams, kf Keyfields) error {
-	// Use the sntrup4591761 KEM.
-	kem := kem.NewSNTRUP4591761()
-
+func EncryptSecretKey(rand io.Reader, skw io.Writer, kem kem.KEM, sk []byte, passphrase []byte, kdfp *Argon2idParams, kf Keyfields) error {
 	salt := make([]byte, saltsize)
 	_, err := rand.Read(salt)
 	if err != nil {
@@ -227,59 +221,64 @@ func requireFields(fields, required map[string]string) error {
 	return nil
 }
 
-// ReadPublicKey reads a Streamlined NTRU Prime 4591^761 public key in the
-// keyfile format from r.
-func ReadPublicKey(r io.Reader) ([]byte, error) {
-	// Use the sntrup4591761 KEM.
-	kem := kem.NewSNTRUP4591761()
-
+// ReadPublicKey reads a KEM public key in the keyfile format from r.
+func ReadPublicKey(r io.Reader) (kem.KEM, []byte, error) {
 	fields, _, encodedKey, err := readKeyFile(r, "ss encryption public key")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	key, err := base64.StdEncoding.DecodeString(encodedKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	err = requireFields(fields, map[string]string{
-		"cryptosystem": kem.String(),
-		"encoding":     "base64",
+		"encoding": "base64",
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return key, nil
+	var cryptosystem kem.KEM
+	switch fields["cryptosystem"] {
+	case "sntrup4591761":
+		cryptosystem = kem.SNTRUP4591761()
+	default:
+		return nil, nil, fmt.Errorf("unknown cryptosystem %q", fields["cryptosystem"])
+	}
+	return cryptosystem, key, nil
 }
 
-// OpenSecretKey reads and decrypts an encryted Streamlined NTRU Prime 4591^761
-// secret key in the keyfile format from r.
-func OpenSecretKey(r io.Reader, passphrase []byte) (_ []byte, _ Keyfields, err error) {
-	e := func(err error) ([]byte, Keyfields, error) {
-		return nil, Keyfields{}, err
+// OpenSecretKey reads and decrypts an encrypted KEM seed or secret key in the
+// keyfile format from r.
+func OpenSecretKey(r io.Reader, passphrase []byte) (kem.KEM, []byte, Keyfields, error) {
+	e := func(err error) (kem.KEM, []byte, Keyfields, error) {
+		return nil, nil, Keyfields{}, err
 	}
-
-	// Use the sntrup4591761 KEM.
-	kem := kem.NewSNTRUP4591761()
 
 	fields, keyAD, encodedSealedKey, err := readKeyFile(r, "ss encryption secret key")
 	if err != nil {
-		return
+		return e(err)
 	}
 	sealedKey, err := base64.StdEncoding.DecodeString(encodedSealedKey)
 	if err != nil {
-		return
+		return e(err)
 	}
 	err = requireFields(fields, map[string]string{
-		"cryptosystem": kem.String(),
-		"encryption":   "argon2id-chacha20-poly1305",
-		"encoding":     "base64",
+		"encryption": "argon2id-chacha20-poly1305",
+		"encoding":   "base64",
 	})
 	if err != nil {
-		return
+		return e(err)
+	}
+	var cryptosystem kem.KEM
+	switch fields["cryptosystem"] {
+	case "sntrup4591761":
+		cryptosystem = kem.SNTRUP4591761()
+	default:
+		return e(fmt.Errorf("unknown cryptosystem %q", fields["cryptosystem"]))
 	}
 	salt, err := base64.StdEncoding.DecodeString(fields["argon2id-salt"])
 	if err != nil {
-		return
+		return e(err)
 	}
 	time, err := strconv.ParseUint(fields["argon2id-time"], 10, 32)
 	if err != nil {
@@ -296,15 +295,15 @@ func OpenSecretKey(r io.Reader, passphrase []byte) (_ []byte, _ Keyfields, err e
 	derivedKey := argon2.IDKey(passphrase, salt, uint32(time), uint32(memory), uint8(ncpu), chacha20poly1305.KeySize)
 	aead, err := chacha20poly1305.New(derivedKey)
 	if err != nil {
-		return
+		return e(err)
 	}
 	skNonce := make([]byte, aead.NonceSize())
 	sk, err := aead.Open(sealedKey[:0], skNonce, sealedKey, keyAD)
 	if err != nil {
-		return
+		return e(err)
 	}
 	var kf Keyfields
 	kf.Comment = fields["comment"]
 	kf.Fingerprint = fields["fingerprint"]
-	return sk, kf, nil
+	return cryptosystem, sk, kf, nil
 }
