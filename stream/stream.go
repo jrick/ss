@@ -55,9 +55,18 @@ type KeyScheme byte
 
 // Key schemes
 const (
-	StreamlinedNTRUPrime4591761Scheme KeyScheme = iota + 1
+	Sntrup4591761Scheme KeyScheme = iota + 1
 	Argon2idScheme
 )
+
+func kemToScheme(k kem.KEM) (KeyScheme, error) {
+	switch k {
+	case kem.SNTRUP4591761():
+		return Sntrup4591761Scheme, nil
+	default:
+		return 0, fmt.Errorf("unknown scheme for KEM %v", k)
+	}
+}
 
 // Encapsulate creates the header beginning a PKI encryption stream.  It derives
 // an ephemeral ChaCha20-Poly1305 symmetric key and encapsulates (encrypts) the
@@ -71,8 +80,13 @@ func Encapsulate(kem kem.KEM, pubkey []byte) (header []byte, aeadKey []byte, err
 		return
 	}
 
+	scheme, err := kemToScheme(kem)
+	if err != nil {
+		return
+	}
+
 	header = make([]byte, 1+len(sharedKeyCiphertext))
-	header[0] = byte(StreamlinedNTRUPrime4591761Scheme)
+	header[0] = byte(scheme)
 	copy(header[1:], sharedKeyCiphertext[:])
 
 	return header, sharedKeyPlaintext, nil
@@ -213,7 +227,7 @@ func ReadHeader(r io.Reader) (*Header, error) {
 	h.Scheme = KeyScheme(scheme[0])
 
 	switch h.Scheme {
-	case StreamlinedNTRUPrime4591761Scheme:
+	case Sntrup4591761Scheme:
 		h.Bytes = make([]byte, 1+sntrup4591761.CiphertextSize)
 		h.Bytes[0] = scheme[0]
 		_, err = io.ReadFull(r, h.Bytes[1:])
