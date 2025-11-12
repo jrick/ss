@@ -6,8 +6,8 @@ package kem
 import (
 	"crypto/hkdf"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/sha3"
+	"crypto/sha512"
 	"errors"
 	"fmt"
 
@@ -117,7 +117,7 @@ func (kemSNTRUP4591761) Decapsulate(seed, ciphertext []byte) (sharedKey []byte, 
 }
 
 func generateSntrup4591761(seed []byte) (*sntrup4591761.PublicKey, *sntrup4591761.PrivateKey, error) {
-	sntrup4591761SubKey, err := hkdf.Key(sha256.New, seed, nil, "ss sntrup4591761 subkey", 32)
+	sntrup4591761SubKey, err := hkdf.Key(sha512.New, seed, nil, "ss sntrup4591761 subkey", 32)
 	if err != nil {
 		return nil, nil, err
 	}
