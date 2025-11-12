@@ -547,7 +547,7 @@ func decrypt(fs *decryptFlags) {
 		log.Fatal(err)
 	}
 	switch header.Scheme {
-	case stream.StreamlinedNTRUPrime4591761Scheme:
+	case stream.Sntrup4591761Scheme:
 		if skOpenErr != nil {
 			log.Fatal(skOpenErr)
 		}
