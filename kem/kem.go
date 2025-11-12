@@ -25,9 +25,10 @@ const KeySize = 32
 type KEM interface {
 	String() string
 
-	// GenerateKey deterministically derives the KEM keypair from the seed.
+	// GenerateKey deterministically derives the KEM public key from the seed.
 	// Seeds must 64 bytes of entropy.
-	GenerateKey(seed []byte) (pubkey, privkey []byte, err error)
+	// The serialized private key is never exposed by this interface.
+	GenerateKey(seed []byte) (pubkey []byte, err error)
 
 	// Encapsulate creates a shared key and a ciphertext to be shared with
 	// the recipient.
@@ -36,9 +37,16 @@ type KEM interface {
 	// Decapsulate recovers the shared key created by the message sender
 	// from the ciphertext.
 	//
+	// If seed not SeedSize, but is instead the size of the KEM's
+	// serialized private key, for legacy compatibility, the seed
+	// parameter will be interpreted as the private key instead of
+	// generating the private key from the seed.  Only the SNTRUP4591761
+	// KEM supports this legacy behavior, due to existing keyfiles that
+	// contain the private keys.
+	//
 	// The shared key will always be 32-bytes long and suitable to use to
 	// key an AEAD.
-	Decapsulate(pubkey, privkey, ciphertext []byte) (sharedKey []byte, err error)
+	Decapsulate(seed, ciphertext []byte) (sharedKey []byte, err error)
 }
 
 // Open returns the KEM instance for a cryptosystem name.
@@ -64,16 +72,16 @@ func (kemSNTRUP4591761) String() string {
 	return "sntrup4591761"
 }
 
-func (kemSNTRUP4591761) GenerateKey(seed []byte) (pubkey, privkey []byte, err error) {
+func (kemSNTRUP4591761) GenerateKey(seed []byte) (pubkey []byte, err error) {
 	if len(seed) != SeedSize {
-		return nil, nil, fmt.Errorf("sntrup4591761: invalid seed length")
+		return nil, fmt.Errorf("sntrup4591761: invalid seed length")
 	}
 
-	pub, priv, err := generateSntrup4591761(seed)
+	pub, _, err := generateSntrup4591761(seed)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return (*pub)[:], (*priv)[:], err
+	return (*pub)[:], err
 }
 
 func (kemSNTRUP4591761) Encapsulate(pubkey []byte) (ciphertext, sharedKey []byte, err error) {
@@ -88,17 +96,24 @@ func (kemSNTRUP4591761) Encapsulate(pubkey []byte) (ciphertext, sharedKey []byte
 	return ct[:], key[:], nil
 }
 
-func (kemSNTRUP4591761) Decapsulate(_, privkey, ciphertext []byte) (sharedKey []byte, err error) {
-	// Note: pubkey is unused.  There is no HKDF call during decapsulate
-	// to use the pubkey as additional info.
-	if len(privkey) != sntrup4591761.PrivateKeySize {
+func (kemSNTRUP4591761) Decapsulate(seed, ciphertext []byte) (sharedKey []byte, err error) {
+	var privkey *sntrup4591761.PrivateKey
+	switch len(seed) {
+	case SeedSize:
+		_, privkey, err = generateSntrup4591761(seed)
+		if err != nil {
+			return nil, err
+		}
+	case sntrup4591761.PrivateKeySize:
+		privkey = (*sntrup4591761.PrivateKey)(seed)
+	default:
 		return nil, fmt.Errorf("sntrup4591761: invalid privkey length %d", len(privkey))
 	}
 	if len(ciphertext) != sntrup4591761.CiphertextSize {
 		return nil, fmt.Errorf("sntrup4591761: invalid ciphertext length %d", len(ciphertext))
 	}
 
-	return decapSntrup4591761(nil, (*sntrup4591761.PrivateKey)(privkey), (*sntrup4591761.Ciphertext)(ciphertext))
+	return decapSntrup4591761(nil, privkey, (*sntrup4591761.Ciphertext)(ciphertext))
 }
 
 func generateSntrup4591761(seed []byte) (*sntrup4591761.PublicKey, *sntrup4591761.PrivateKey, error) {

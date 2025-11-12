@@ -62,7 +62,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, kem kem.KEM, passphrase []
 	time := kdfp.Time
 	memory := kdfp.Memory
 	threads := kdfp.Threads
-	skKey := argon2.IDKey(passphrase, salt, time, memory, threads, chacha20poly1305.KeySize)
+	aeadKey := argon2.IDKey(passphrase, salt, time, memory, threads, chacha20poly1305.KeySize)
 
 	// Generate keys
 	seed := make([]byte, 64)
@@ -70,7 +70,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, kem kem.KEM, passphrase []
 	if err != nil {
 		return "", err
 	}
-	pk, sk, err := kem.GenerateKey(seed)
+	pk, err := kem.GenerateKey(seed)
 	if err != nil {
 		return "", err
 	}
@@ -103,7 +103,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, kem kem.KEM, passphrase []
 		Comment:     comment,
 		Fingerprint: fingerprint,
 	}
-	err = writeSecretKey(kem.String(), buf, sk, kf, skKey, salt, time, memory, threads)
+	err = writeSecretKey(kem.String(), buf, seed, kf, aeadKey, salt, time, memory, threads)
 	if err != nil {
 		return "", err
 	}
@@ -115,7 +115,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, kem kem.KEM, passphrase []
 	return fingerprint, nil
 }
 
-func writeSecretKey(kemName string, buf *bytes.Buffer, sk []byte, kf Keyfields, skKey []byte,
+func writeSecretKey(kemName string, buf *bytes.Buffer, seed []byte, kf Keyfields, aeadKey []byte,
 	salt []byte, time, memory uint32, threads uint8) error {
 	fmt.Fprintf(buf, "ss encryption secret key\n")
 	fmt.Fprintf(buf, "comment: %s\n", kf.Comment)
@@ -130,14 +130,14 @@ func writeSecretKey(kemName string, buf *bytes.Buffer, sk []byte, kf Keyfields, 
 	// Everything above is Associated Data
 	data := buf.Bytes()
 	fmt.Fprintf(buf, "\n")
-	aead, err := chacha20poly1305.New(skKey)
+	aead, err := chacha20poly1305.New(aeadKey)
 	if err != nil {
 		return err
 	}
 	nonce := make([]byte, aead.NonceSize())
-	skCiphertext := aead.Seal(nil, nonce, sk, data)
+	seedCiphertext := aead.Seal(nil, nonce, seed, data)
 	enc := base64.NewEncoder(base64.StdEncoding, buf)
-	enc.Write(skCiphertext)
+	enc.Write(seedCiphertext)
 	enc.Close()
 	fmt.Fprintf(buf, "\n")
 	return nil

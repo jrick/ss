@@ -242,13 +242,12 @@ func ReadHeader(r io.Reader) (*Header, error) {
 
 // Decapsulate decrypts a PKI encrypted symmetric key from the header.
 // The scheme must be for PKI encryption.
-func Decapsulate(h *Header, privkey []byte) (aeadKey []byte, err error) {
-	if h.Scheme != StreamlinedNTRUPrime4591761Scheme {
+func Decapsulate(h *Header, seedOrPrivateKey []byte) (aeadKey []byte, err error) {
+	if h.KEM == nil {
 		return nil, errors.New("stream: nothing to decapsulate in header")
 	}
 
-	var pubkey []byte // No pubkey for sntrup4591761 decapsulate.
-	sharedKeyPlaintext, err := h.KEM.Decapsulate(pubkey, privkey, h.Ciphertext)
+	sharedKeyPlaintext, err := h.KEM.Decapsulate(seedOrPrivateKey, h.Ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("stream: cannot decapsulate message key: %w", err)
 	}
