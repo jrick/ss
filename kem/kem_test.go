@@ -20,7 +20,7 @@ func TestSntrup4591761RoundTrip(t *testing.T) {
 
 	pubkey, privkey, err := kem.GenerateKey(seed)
 	if err != nil {
-		t.Fatalf("GenerateKeys: %v", err)
+		t.Fatalf("GenerateKey: %v", err)
 	}
 
 	ciphertext, sharedKey1, err := kem.Encapsulate(pubkey)
