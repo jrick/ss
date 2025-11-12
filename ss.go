@@ -445,7 +445,7 @@ func encrypt(fs *encryptFlags) {
 		log.Fatalf("%s: %v", pkFilename, err)
 	}
 
-	header, key, err := stream.Encapsulate(rand.Reader, pk)
+	header, key, err := stream.Encapsulate(pk)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -533,7 +533,7 @@ func decrypt(fs *decryptFlags) {
 		log.Fatalf("pledge: %v", err)
 	}
 
-	var key *stream.SymmetricKey
+	var aeadKey []byte
 	header, err := stream.ReadHeader(in)
 	if err != nil {
 		log.Fatal(err)
@@ -561,7 +561,7 @@ func decrypt(fs *decryptFlags) {
 			log.Fatal("The secret keyfile cannot be opened.  " +
 				"This may be due to keyfile tampering or an incorrect passphrase.")
 		}
-		key, err = stream.Decapsulate(header, sk)
+		aeadKey, err = stream.Decapsulate(header, sk)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -576,14 +576,14 @@ func decrypt(fs *decryptFlags) {
 			log.Fatalf("pledge: %v", err)
 		}
 
-		key, err = stream.PassphraseKey(header, passphrase)
+		aeadKey, err = stream.PassphraseKey(header, passphrase)
 		if err != nil {
 			log.Fatal(err)
 		}
 	default:
 		log.Fatalf("Unknown encryption scheme '%d'", header.Scheme)
 	}
-	err = stream.Decrypt(out, in, header.Bytes, key)
+	err = stream.Decrypt(out, in, header.Bytes, aeadKey)
 	if err != nil {
 		log.Fatal(err)
 	}

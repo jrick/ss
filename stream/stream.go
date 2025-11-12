@@ -12,6 +12,7 @@ import (
 	"runtime"
 
 	"github.com/companyzero/sntrup4591761"
+	"github.com/jrick/ss/kem"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/poly1305"
@@ -41,22 +42,6 @@ func (c *counter) inc() {
 	binary.LittleEndian.PutUint32(c.bytes[8:12], c.limbs[2])
 }
 
-// PublicKey is a type alias for a properly-sized byte array to represent a
-// Streamlined NTRU Prime 4591^761 public key.
-type PublicKey = [sntrup4591761.PublicKeySize]byte
-
-// SecretKey is a type alias for a properly-sized byte array to represent a
-// Streamlined NTRU Prime 4591^761 secret key.
-type SecretKey = [sntrup4591761.PrivateKeySize]byte
-
-// Ciphertext is a type alias for a properly-sized byte array to represent the
-// ciphertext of a Streamlined NTRU Prime 4591^761 encapsulated key.
-type Ciphertext = [sntrup4591761.CiphertextSize]byte
-
-// SymmetricKey is a type alias for a properly-sized byte array for a
-// ChaCha20-Poly1305 symmetric encryption key.
-type SymmetricKey = [chacha20poly1305.KeySize]byte
-
 const streamVersion = 3
 
 const chunksize = 1 << 16 // does not include AEAD overhead
@@ -78,10 +63,12 @@ const (
 // an ephemeral ChaCha20-Poly1305 symmetric key and encapsulates (encrypts) the
 // key for the public key pk, recording the key ciphertext in the header.
 // Cryptographically-secure randomness is read from rand.
-func Encapsulate(rand io.Reader, pk *PublicKey) (header []byte, key *SymmetricKey, err error) {
+func Encapsulate(pubkey []byte) (header []byte, aeadKey []byte, err error) {
+	kem := kem.NewSNTRUP4591761()
+
 	// Derive and encapsulate an ephemeral shared symmetric key to encrypt a
 	// message that can only be decapsulated using pk's secret key.
-	sharedKeyCiphertext, sharedKeyPlaintext, err := sntrup4591761.Encapsulate(rand, pk)
+	sharedKeyCiphertext, sharedKeyPlaintext, err := kem.Encapsulate(pubkey)
 	if err != nil {
 		return
 	}
@@ -97,7 +84,7 @@ func Encapsulate(rand io.Reader, pk *PublicKey) (header []byte, key *SymmetricKe
 // The time and memory parameters describe Argon2id difficulty parameters, where
 // memory is measured in KiB.
 // Cryptographically-secure randomness is read from rand.
-func PassphraseHeader(rand io.Reader, passphrase []byte, time, memory uint32) (header []byte, key *SymmetricKey, err error) {
+func PassphraseHeader(rand io.Reader, passphrase []byte, time, memory uint32) (header []byte, aeadKey []byte, err error) {
 	threads := uint8(runtime.NumCPU())
 
 	header = make([]byte, 1+16+9+overhead)
@@ -132,17 +119,15 @@ func PassphraseHeader(rand io.Reader, passphrase []byte, time, memory uint32) (h
 	poly1305.Sum(&tag, data, &polyKey)
 	copy(htag, tag[:])
 
-	key = new(SymmetricKey)
-	copy(key[:], idkey[32:])
-	return header, key, nil
+	return header, idkey[32:], nil
 }
 
 // Encrypt performs symmetric stream encryption, reading plaintext from r and
 // writing an encrypted stream to w which can only be decrypted with knowledge
 // of key.  The steam header is Associated Data.
-func Encrypt(w io.Writer, r io.Reader, header []byte, key *SymmetricKey) error {
+func Encrypt(w io.Writer, r io.Reader, header []byte, aeadKey []byte) error {
 	buf := make([]byte, 0, chunksize+overhead)
-	aead, err := chacha20poly1305.New(key[:])
+	aead, err := chacha20poly1305.New(aeadKey)
 	if err != nil {
 		return err
 	}
@@ -207,8 +192,8 @@ type Header struct {
 	Bytes  []byte
 	Scheme KeyScheme
 
-	// For StreamlinedNTRUPrime4591761Scheme
-	Ciphertext *Ciphertext
+	// For KEM schemes
+	Ciphertext []byte
 
 	// For Argon2idScheme
 	Salt    []byte
@@ -229,17 +214,14 @@ func ReadHeader(r io.Reader) (*Header, error) {
 	h.Scheme = KeyScheme(scheme[0])
 
 	switch h.Scheme {
-	default:
-		return nil, fmt.Errorf("stream: unknown key scheme %#0x", h.Scheme)
 	case StreamlinedNTRUPrime4591761Scheme:
-		h.Ciphertext = new(Ciphertext)
-		h.Bytes = make([]byte, 1+len(h.Ciphertext))
+		h.Bytes = make([]byte, 1+sntrup4591761.CiphertextSize)
 		h.Bytes[0] = scheme[0]
 		_, err = io.ReadFull(r, h.Bytes[1:])
 		if err != nil {
 			return nil, err
 		}
-		copy(h.Ciphertext[:], h.Bytes[1:])
+		h.Ciphertext = h.Bytes[1:]
 	case Argon2idScheme:
 		h.Bytes = make([]byte, 1+16+9+overhead)
 		h.Bytes[0] = scheme[0]
@@ -252,26 +234,32 @@ func ReadHeader(r io.Reader) (*Header, error) {
 		h.Memory = binary.LittleEndian.Uint32(h.Bytes[17+4 : 17+8])
 		h.Threads = h.Bytes[17+8]
 		copy(h.Tag[:], h.Bytes[17+9:])
+	default:
+		return nil, fmt.Errorf("stream: unknown key scheme %#0x", h.Scheme)
 	}
 	return h, nil
 }
 
 // Decapsulate decrypts a PKI encrypted symmetric key from the header.
 // The scheme must be for PKI encryption.
-func Decapsulate(h *Header, sk *SecretKey) (*SymmetricKey, error) {
+func Decapsulate(h *Header, privkey []byte) (aeadKey []byte, err error) {
 	if h.Scheme != StreamlinedNTRUPrime4591761Scheme {
 		return nil, errors.New("stream: nothing to decapsulate in header")
 	}
-	sharedKeyPlaintext, ok := sntrup4591761.Decapsulate(h.Ciphertext, sk)
-	if ok != 1 {
-		return nil, errors.New("stream: cannot decapsulate message key")
+
+	kem := kem.NewSNTRUP4591761()
+
+	var pubkey []byte // No pubkey for sntrup4591761 decapsulate.
+	sharedKeyPlaintext, err := kem.Decapsulate(pubkey, privkey, h.Ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("stream: cannot decapsulate message key: %w", err)
 	}
 	return sharedKeyPlaintext, nil
 }
 
 // PassphraseKey derives a symmetric key from a passphrase.
 // The header scheme must be for symmetric passphrase encryption.
-func PassphraseKey(h *Header, passphrase []byte) (*SymmetricKey, error) {
+func PassphraseKey(h *Header, passphrase []byte) (aeadKey []byte, err error) {
 	if h.Scheme != Argon2idScheme {
 		return nil, errors.New("stream: not a symmetric passphrase encryption scheme")
 	}
@@ -285,18 +273,16 @@ func PassphraseKey(h *Header, passphrase []byte) (*SymmetricKey, error) {
 		return nil, errors.New("stream: incorrect passphrase")
 	}
 
-	key := new(SymmetricKey)
-	copy(key[:], idkey[32:])
-	return key, nil
+	return idkey[32:], nil
 }
 
 // Decrypt performs symmetric stream decryption, reading ciphertext from r,
 // decrypting with key, and writing a stream of plaintext to w.  The steam
 // header is Associated Data.
-func Decrypt(w io.Writer, r io.Reader, header []byte, key *SymmetricKey) error {
+func Decrypt(w io.Writer, r io.Reader, header []byte, aeadKey []byte) error {
 	nonce := newCounter()
 	buf := make([]byte, 0, chunksize+overhead)
-	aead, err := chacha20poly1305.New(key[:])
+	aead, err := chacha20poly1305.New(aeadKey)
 	if err != nil {
 		return err
 	}

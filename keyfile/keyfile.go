@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/companyzero/sntrup4591761"
+	"github.com/jrick/ss/kem"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -64,27 +64,35 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 	threads := kdfp.Threads
 	skKey := argon2.IDKey(passphrase, salt, time, memory, threads, chacha20poly1305.KeySize)
 
-	// Generate NTRU Prime key
-	pk, sk, err := sntrup4591761.GenerateKey(rand)
+	// Use the sntrup4591761 KEM.
+	kem := kem.NewSNTRUP4591761()
+
+	// Generate keys
+	seed := make([]byte, 64)
+	_, err = rand.Read(seed)
+	if err != nil {
+		return "", err
+	}
+	pk, sk, err := kem.GenerateKey(seed)
 	if err != nil {
 		return "", err
 	}
 
 	// Create fingerprint string from public key
 	h := sha512.New()
-	h.Write(pk[:])
+	h.Write(pk)
 	fingerprint = "sha512:" + base64.StdEncoding.EncodeToString(h.Sum(nil))
 
 	// Write public key
 	buf := new(bytes.Buffer)
 	fmt.Fprintf(buf, "ss encryption public key\n")
 	fmt.Fprintf(buf, "comment: %s\n", comment)
-	fmt.Fprintf(buf, "cryptosystem: sntrup4591761\n")
+	fmt.Fprintf(buf, "cryptosystem: %v\n", kem)
 	fmt.Fprintf(buf, "fingerprint: %s\n", fingerprint)
 	fmt.Fprintf(buf, "encoding: base64\n")
 	fmt.Fprintf(buf, "\n")
 	enc := base64.NewEncoder(base64.StdEncoding, buf)
-	enc.Write(pk[:])
+	enc.Write(pk)
 	enc.Close()
 	fmt.Fprintf(buf, "\n")
 	_, err = io.Copy(pkw, buf)
@@ -98,7 +106,7 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 		Comment:     comment,
 		Fingerprint: fingerprint,
 	}
-	err = writeSecretKey(buf, sk, kf, skKey, salt, time, memory, threads)
+	err = writeSecretKey(kem.String(), buf, sk, kf, skKey, salt, time, memory, threads)
 	if err != nil {
 		return "", err
 	}
@@ -110,10 +118,11 @@ func GenerateKeys(rand io.Reader, pkw, skw io.Writer, passphrase []byte, kdfp *A
 	return fingerprint, nil
 }
 
-func writeSecretKey(buf *bytes.Buffer, sk *SecretKey, kf Keyfields, skKey []byte, salt []byte, time, memory uint32, threads uint8) error {
+func writeSecretKey(kemName string, buf *bytes.Buffer, sk []byte, kf Keyfields, skKey []byte,
+	salt []byte, time, memory uint32, threads uint8) error {
 	fmt.Fprintf(buf, "ss encryption secret key\n")
 	fmt.Fprintf(buf, "comment: %s\n", kf.Comment)
-	fmt.Fprintf(buf, "cryptosystem: sntrup4591761\n")
+	fmt.Fprintf(buf, "cryptosystem: %v\n", kemName)
 	fmt.Fprintf(buf, "fingerprint: %s\n", kf.Fingerprint)
 	fmt.Fprintf(buf, "encryption: argon2id-chacha20-poly1305\n")
 	fmt.Fprintf(buf, "argon2id-salt: %s\n", base64.StdEncoding.EncodeToString(salt))
@@ -129,7 +138,7 @@ func writeSecretKey(buf *bytes.Buffer, sk *SecretKey, kf Keyfields, skKey []byte
 		return err
 	}
 	nonce := make([]byte, aead.NonceSize())
-	skCiphertext := aead.Seal(nil, nonce, sk[:], data)
+	skCiphertext := aead.Seal(nil, nonce, sk, data)
 	enc := base64.NewEncoder(base64.StdEncoding, buf)
 	enc.Write(skCiphertext)
 	enc.Close()
@@ -138,7 +147,10 @@ func writeSecretKey(buf *bytes.Buffer, sk *SecretKey, kf Keyfields, skKey []byte
 }
 
 // EncryptSecretKey writes the secret key encrypted in keyfile format to skw.
-func EncryptSecretKey(rand io.Reader, skw io.Writer, sk *SecretKey, passphrase []byte, kdfp *Argon2idParams, kf Keyfields) error {
+func EncryptSecretKey(rand io.Reader, skw io.Writer, sk []byte, passphrase []byte, kdfp *Argon2idParams, kf Keyfields) error {
+	// Use the sntrup4591761 KEM.
+	kem := kem.NewSNTRUP4591761()
+
 	salt := make([]byte, saltsize)
 	_, err := rand.Read(salt)
 	if err != nil {
@@ -150,7 +162,7 @@ func EncryptSecretKey(rand io.Reader, skw io.Writer, sk *SecretKey, passphrase [
 	skKey := argon2.IDKey(passphrase, salt, time, memory, threads, chacha20poly1305.KeySize)
 
 	buf := new(bytes.Buffer)
-	err = writeSecretKey(buf, sk, kf, skKey, salt, time, memory, threads)
+	err = writeSecretKey(kem.String(), buf, sk, kf, skKey, salt, time, memory, threads)
 	if err != nil {
 		return err
 	}
@@ -215,17 +227,12 @@ func requireFields(fields, required map[string]string) error {
 	return nil
 }
 
-// PublicKey is a type alias for a properly-sized byte array to represent a
-// Streamlined NTRU Prime 4591^761 public key.
-type PublicKey = [sntrup4591761.PublicKeySize]byte
-
-// SecretKey is a type alias for a properly-sized byte array to represent a
-// Streamlined NTRU Prime 4591^761 secret key.
-type SecretKey = [sntrup4591761.PrivateKeySize]byte
-
 // ReadPublicKey reads a Streamlined NTRU Prime 4591^761 public key in the
 // keyfile format from r.
-func ReadPublicKey(r io.Reader) (*PublicKey, error) {
+func ReadPublicKey(r io.Reader) ([]byte, error) {
+	// Use the sntrup4591761 KEM.
+	kem := kem.NewSNTRUP4591761()
+
 	fields, _, encodedKey, err := readKeyFile(r, "ss encryption public key")
 	if err != nil {
 		return nil, err
@@ -235,26 +242,24 @@ func ReadPublicKey(r io.Reader) (*PublicKey, error) {
 		return nil, err
 	}
 	err = requireFields(fields, map[string]string{
-		"cryptosystem": "sntrup4591761",
+		"cryptosystem": kem.String(),
 		"encoding":     "base64",
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(key) != sntrup4591761.PublicKeySize {
-		return nil, fmt.Errorf("public key has invalid length %d", len(key))
-	}
-	pk := new(PublicKey)
-	copy(pk[:], key)
-	return pk, nil
+	return key, nil
 }
 
 // OpenSecretKey reads and decrypts an encryted Streamlined NTRU Prime 4591^761
 // secret key in the keyfile format from r.
-func OpenSecretKey(r io.Reader, passphrase []byte) (_ *SecretKey, _ Keyfields, err error) {
-	e := func(err error) (*SecretKey, Keyfields, error) {
+func OpenSecretKey(r io.Reader, passphrase []byte) (_ []byte, _ Keyfields, err error) {
+	e := func(err error) ([]byte, Keyfields, error) {
 		return nil, Keyfields{}, err
 	}
+
+	// Use the sntrup4591761 KEM.
+	kem := kem.NewSNTRUP4591761()
 
 	fields, keyAD, encodedSealedKey, err := readKeyFile(r, "ss encryption secret key")
 	if err != nil {
@@ -265,7 +270,7 @@ func OpenSecretKey(r io.Reader, passphrase []byte) (_ *SecretKey, _ Keyfields, e
 		return
 	}
 	err = requireFields(fields, map[string]string{
-		"cryptosystem": "sntrup4591761",
+		"cryptosystem": kem.String(),
 		"encryption":   "argon2id-chacha20-poly1305",
 		"encoding":     "base64",
 	})
@@ -294,15 +299,10 @@ func OpenSecretKey(r io.Reader, passphrase []byte) (_ *SecretKey, _ Keyfields, e
 		return
 	}
 	skNonce := make([]byte, aead.NonceSize())
-	key, err := aead.Open(sealedKey[:0], skNonce, sealedKey, keyAD)
+	sk, err := aead.Open(sealedKey[:0], skNonce, sealedKey, keyAD)
 	if err != nil {
 		return
 	}
-	sk := new(SecretKey)
-	if len(key) != len(sk) {
-		return e(fmt.Errorf("secret key has invalid length %d", len(key)))
-	}
-	copy(sk[:], key)
 	var kf Keyfields
 	kf.Comment = fields["comment"]
 	kf.Fingerprint = fields["fingerprint"]
