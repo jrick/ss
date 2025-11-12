@@ -237,14 +237,11 @@ func ReadPublicKey(r io.Reader) (kem.KEM, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	var cryptosystem kem.KEM
-	switch fields["cryptosystem"] {
-	case "sntrup4591761":
-		cryptosystem = kem.SNTRUP4591761()
-	default:
-		return nil, nil, fmt.Errorf("unknown cryptosystem %q", fields["cryptosystem"])
+	kem, err := kem.Open(fields["cryptosystem"])
+	if err != nil {
+		return nil, nil, err
 	}
-	return cryptosystem, key, nil
+	return kem, key, nil
 }
 
 // OpenSecretKey reads and decrypts an encrypted KEM seed or secret key in the
@@ -269,12 +266,9 @@ func OpenSecretKey(r io.Reader, passphrase []byte) (kem.KEM, []byte, Keyfields, 
 	if err != nil {
 		return e(err)
 	}
-	var cryptosystem kem.KEM
-	switch fields["cryptosystem"] {
-	case "sntrup4591761":
-		cryptosystem = kem.SNTRUP4591761()
-	default:
-		return e(fmt.Errorf("unknown cryptosystem %q", fields["cryptosystem"]))
+	kem, err := kem.Open(fields["cryptosystem"])
+	if err != nil {
+		return e(err)
 	}
 	salt, err := base64.StdEncoding.DecodeString(fields["argon2id-salt"])
 	if err != nil {
@@ -305,5 +299,5 @@ func OpenSecretKey(r io.Reader, passphrase []byte) (kem.KEM, []byte, Keyfields, 
 	var kf Keyfields
 	kf.Comment = fields["comment"]
 	kf.Fingerprint = fields["fingerprint"]
-	return cryptosystem, sk, kf, nil
+	return kem, sk, kf, nil
 }

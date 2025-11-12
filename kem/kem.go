@@ -41,6 +41,16 @@ type KEM interface {
 	Decapsulate(pubkey, privkey, ciphertext []byte) (sharedKey []byte, err error)
 }
 
+// Open returns the KEM instance for a cryptosystem name.
+func Open(name string) (KEM, error) {
+	switch name {
+	case _kemSNTRUP4591761.String():
+		return _kemSNTRUP4591761, nil
+	default:
+		return nil, fmt.Errorf("unknown KEM %q", name)
+	}
+}
+
 type kemSNTRUP4591761 struct{}
 
 var _kemSNTRUP4591761 = new(kemSNTRUP4591761)
