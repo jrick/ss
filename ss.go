@@ -24,7 +24,7 @@ import (
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage of %s:
-  %[1]s keygen [-i id] [-t time] [-m memory (MiB)] [-c comment]
+  %[1]s keygen [-i id] [-C cryptosystem] [-t time] [-m memory (MiB)] [-c comment]
   %[1]s chpass [-i id] [-t time] [-m memory (MiB)]
   %[1]s encrypt [-i id|pubkey] [-in input] [-out output]
   %[1]s encrypt -passphrase [-in input] [-out output] [-t time] [-m memory (MiB)]
@@ -107,22 +107,25 @@ func main() {
 }
 
 type keygenFlags struct {
-	identity string
-	time     uint
-	memory   uint
-	force    bool
-	comment  string
+	identity     string
+	cryptosystem string
+	time         uint
+	memory       uint
+	force        bool
+	comment      string
 }
 
 const (
-	defaultID     = "id"
-	defaultTime   = 1
-	defaultMemory = 64
+	defaultID           = "id"
+	defaultCryptosystem = "sntrup4591761"
+	defaultTime         = 1
+	defaultMemory       = 64
 )
 
 func (f *keygenFlags) parse(args []string) *keygenFlags {
 	fs := flag.NewFlagSet("ss keygen", flag.ExitOnError)
 	fs.StringVar(&f.identity, "i", defaultID, "identity name")
+	fs.StringVar(&f.cryptosystem, "C", defaultCryptosystem, "cryptosystem")
 	fs.UintVar(&f.time, "t", defaultTime, "Argon2id time")
 	fs.UintVar(&f.memory, "m", defaultMemory, "Argon2id memory (MiB)")
 	fs.BoolVar(&f.force, "f", false, "force Argon2id key derivation despite low parameters")
@@ -148,6 +151,10 @@ func promptPassphrase(prompt string) ([]byte, error) {
 
 func keygen(fs *keygenFlags) (err error) {
 	id := fs.identity
+	kem, err := kem.Open(fs.cryptosystem)
+	if err != nil {
+		return fmt.Errorf("unknown cryptosystem %q", fs.cryptosystem)
+	}
 	pkFilename := filepath.Join(appdir, id+".public")
 	skFilename := filepath.Join(appdir, id+".secret")
 	if _, err := os.Stat(pkFilename); !os.IsNotExist(err) {
@@ -212,7 +219,6 @@ func keygen(fs *keygenFlags) (err error) {
 		return errors.New("passphrases do not match")
 	}
 
-	kem := kem.SNTRUP4591761()
 	kdfp := keyfile.NewArgon2idParams(time, memory*1024)
 	fp, err := keyfile.GenerateKeys(rand.Reader, pkFile, skFile, kem, passphrase, kdfp, fs.comment)
 	if err != nil {
