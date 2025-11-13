@@ -4,10 +4,7 @@
 package kem
 
 import (
-	"crypto/hkdf"
 	"crypto/rand"
-	"crypto/sha3"
-	"crypto/sha512"
 	"errors"
 	"fmt"
 
@@ -117,18 +114,8 @@ func (kemSNTRUP4591761) Decapsulate(seed, ciphertext []byte) (sharedKey []byte, 
 }
 
 func generateSntrup4591761(seed []byte) (*sntrup4591761.PublicKey, *sntrup4591761.PrivateKey, error) {
-	sntrup4591761SubKey, err := hkdf.Key(sha512.New, seed, nil, "ss sntrup4591761 subkey", 32)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	sntrup4591761PRG := sha3.NewSHAKE256()
-	_, err = sntrup4591761PRG.Write(sntrup4591761SubKey)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return sntrup4591761.GenerateKey(sntrup4591761PRG)
+	csprng := cshake256CSPRNG(seed, []byte("ss sntrup4591761 csprng"))
+	return sntrup4591761.GenerateKey(csprng)
 }
 
 func encapSntrup4591761(pk *sntrup4591761.PublicKey) (*sntrup4591761.Ciphertext, []byte, error) {
