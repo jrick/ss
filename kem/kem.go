@@ -17,7 +17,7 @@ const SeedSize = 64
 // KeySize is the size of the shared key.
 const KeySize = 32
 
-// KEM describes the algorithms for a Key Encapsulation Mechanicm (KEM) to key
+// KEM describes the algorithms for a Key Encapsulation Mechanism (KEM) to key
 // the encryption stream.
 type KEM interface {
 	String() string
@@ -60,7 +60,7 @@ type kemSNTRUP4591761 struct{}
 
 var _kemSNTRUP4591761 = new(kemSNTRUP4591761)
 
-// SNTRUP4591761 returns a KEM implementation for sntrup4591761.
+// SNTRUP4591761 returns the KEM implementation for sntrup4591761.
 func SNTRUP4591761() KEM {
 	return _kemSNTRUP4591761
 }

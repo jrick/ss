@@ -148,7 +148,7 @@ func Encrypt(w io.Writer, r io.Reader, header []byte, aeadKey []byte) error {
 	//
 	// Keying Header
 	// - Uniquely describes keying scheme and carries related data.
-	//   Examples include sntrup4591761 encapsulation or KDF parameters.
+	//   Examples include KEM encapsulation or KDF parameters.
 	//
 	// Version
 	// - ChaCha20-Poly1305 sealed protocol version, using a zero nonce, with
