@@ -118,8 +118,8 @@ type keygenFlags struct {
 const (
 	defaultID           = "id"
 	defaultCryptosystem = "sntrup4591761"
-	defaultTime         = 1
-	defaultMemory       = 64
+	defaultTime         = 3
+	defaultMemory       = 1024 + 256
 )
 
 func (f *keygenFlags) parse(args []string) *keygenFlags {
