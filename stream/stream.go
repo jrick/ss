@@ -55,14 +55,18 @@ type KeyScheme byte
 
 // Key schemes
 const (
-	Sntrup4591761Scheme KeyScheme = iota + 1
-	Argon2idScheme
+	Sntrup4591761Scheme       KeyScheme = 1
+	X25519Sntrup4591761Scheme KeyScheme = 3
+
+	Argon2idScheme KeyScheme = 2
 )
 
 func kemToScheme(k kem.KEM) (KeyScheme, error) {
 	switch k {
 	case kem.SNTRUP4591761():
 		return Sntrup4591761Scheme, nil
+	case kem.X25519SNTRUP4591761():
+		return X25519Sntrup4591761Scheme, nil
 	default:
 		return 0, fmt.Errorf("unknown scheme for KEM %v", k)
 	}
@@ -236,6 +240,15 @@ func ReadHeader(r io.Reader) (*Header, error) {
 		}
 		h.Ciphertext = h.Bytes[1:]
 		h.KEM = kem.SNTRUP4591761()
+	case X25519Sntrup4591761Scheme:
+		h.Bytes = make([]byte, 1+kem.X25519SNTRUP4591761CiphertextSize)
+		h.Bytes[0] = scheme[0]
+		_, err = io.ReadFull(r, h.Bytes[1:])
+		if err != nil {
+			return nil, err
+		}
+		h.Ciphertext = h.Bytes[1:]
+		h.KEM = kem.X25519SNTRUP4591761()
 	case Argon2idScheme:
 		h.Bytes = make([]byte, 1+16+9+overhead)
 		h.Bytes[0] = scheme[0]
