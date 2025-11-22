@@ -45,6 +45,8 @@ func Open(name string) (KEM, error) {
 	switch name {
 	case _kemSNTRUP4591761.String():
 		return _kemSNTRUP4591761, nil
+	case _kemX25519SNTRUP4591761.String():
+		return _kemX25519SNTRUP4591761, nil
 	default:
 		return nil, fmt.Errorf("unknown KEM %q", name)
 	}
