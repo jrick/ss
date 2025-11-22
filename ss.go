@@ -117,7 +117,7 @@ type keygenFlags struct {
 
 const (
 	defaultID           = "id"
-	defaultCryptosystem = "sntrup4591761"
+	defaultCryptosystem = "x25519-sntrup4591761"
 	defaultTime         = 3
 	defaultMemory       = 1024 + 256
 )
