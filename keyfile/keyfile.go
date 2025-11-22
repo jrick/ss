@@ -47,11 +47,11 @@ type Keyfields struct {
 	Fingerprint string
 }
 
-// GenerateKeys generates a random Streamlined NTRU Prime 4591^761
-// public/secret key pair, writing the public key to pkw and secret key to skw.
-// The secret key is encrypted with ChaCha20-Poly1305 using a symmetric key
-// derived using Argon2id from passphrase and specified KDF parameters.
-// Cryptographically-secure randomness is provided by rand.
+// GenerateKeys generates a new KEM public/secret key pair, writing the
+// public key to pkw and secret key to skw.  The secret key is encrypted with
+// ChaCha20-Poly1305 using a symmetric key derived using Argon2id from
+// passphrase and specified KDF parameters.  Cryptographically-secure
+// randomness is provided by rand.
 func GenerateKeys(rand io.Reader, pkw, skw io.Writer, kem kem.KEM, passphrase []byte, kdfp *Argon2idParams, comment string) (fingerprint string, err error) {
 	// Derive secret keyfile encryption key from password using Argon2id
 	salt := make([]byte, saltsize)
