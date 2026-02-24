@@ -19,7 +19,7 @@ import (
 	"github.com/jrick/ss/kem"
 	"github.com/jrick/ss/keyfile"
 	"github.com/jrick/ss/stream"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 func usage() {
@@ -144,7 +144,7 @@ func promptPassphrase(prompt string) ([]byte, error) {
 	if err != nil {
 		panic(err)
 	}
-	passphrase, err := terminal.ReadPassword(int(tty.Fd()))
+	passphrase, err := term.ReadPassword(int(tty.Fd()))
 	fmt.Fprintln(tty)
 	return passphrase, err
 }
@@ -400,7 +400,7 @@ func encrypt(fs *encryptFlags) {
 	out, in := stdio(fs.out, fs.in)
 	switch out := out.(type) {
 	case interface{ Fd() uintptr }: // implemented by *os.File
-		if terminal.IsTerminal(int(out.Fd())) {
+		if term.IsTerminal(int(out.Fd())) {
 			log.Printf("output file is a terminal")
 			log.Printf("use shell redirection or set -out flag to a filename")
 			fs.usage()
