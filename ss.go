@@ -265,7 +265,7 @@ func (f *chpassFlags) parse(args []string) *chpassFlags {
 func chpass(fs *chpassFlags) error {
 	err := unveil("/dev/tty", "rw")
 	if err != nil {
-		fatalf("unveil /dev/tty: %v", err)
+		fatalf("unveil /dev/tty: %v\n", err)
 	}
 	unveilBlock()
 
@@ -495,7 +495,7 @@ func encrypt(fs *encryptFlags) {
 func encryptPassphrase(fs *encryptFlags, out io.Writer, in io.Reader) {
 	err := unveil("/dev/tty", "rw")
 	if err != nil {
-		fatalf("unveil /dev/tty: %v", err)
+		fatalf("unveil /dev/tty: %v\n", err)
 	}
 	err = pledge("stdio rpath wpath tty")
 	if err != nil {
